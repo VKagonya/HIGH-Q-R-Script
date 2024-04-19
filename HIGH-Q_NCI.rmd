@@ -11,3 +11,4 @@ library(dpylyr)
 setwd()"C:/HIGH-Q"
 NCI<-read.csv("NCI.csv"
 ```
+NCI %>% boxplot(X)
