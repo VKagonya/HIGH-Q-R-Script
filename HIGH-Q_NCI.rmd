@@ -1,0 +1,13 @@
+- - -
+Author: VKagonya
+Title: "Main analyses from R
+Output: html_document
+- - -
+```{r}
+library(readr)
+library(foreign)
+library(dpylyr)
+#set wd and import file
+setwd()"C:/HIGH-Q"
+NCI<-read.csv("NCI.csv"
+```
