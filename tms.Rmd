@@ -1,0 +1,142 @@
+---
+title: "TMS"
+author: "VKagonya"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+#TMS
+```{r echo=T}
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(ggthemes)
+library(hrbrthemes)
+library(tidyverse)
+library(table1)
+
+tms <- read_csv("C:/Users/vkagonya/OneDrive - Kemri Wellcome Trust/HIGH-Q Project/DATA ANALYSIS_HIGH_Q/R PROJECTS/TMS/tms_shift_statistics.csv")
+View(tms)
+
+tinytex::install_tinytex()
+```
+#Density plot
+```{r eval=FALSE, include=FALSE, echo=FALSE, }
+tms_long<-melt(tms,
+                    id.vars = c("Time block"),
+                    measure.vars = c("Last Office","Phototherapy management",
+                                     "Weight Check","Resuscitation","Patient Hygiene",
+                                     "Patient Assessment and Review","Breathing support",
+                                     "Cannulation","Discharges","Vital Signs Monitoring",
+                                     "Admissions","Medication and IV Fluids Administration",
+                                     "Feeding & feeding support"),
+                    variable.name="Direct patient care task",
+                    value.name="Occurrence frequency", na.rm = T) 
+
+variable.names(tms_long)
+
+
+tms_long$`Occurrence frequency`[tms_long$`Occurrence frequency`==0.0]<-NA
+
+#Density plot
+ggplot(data=tms_long,aes(x=`Time block`, 
+         fill =`Occurrence frequency`,
+         group=`Occurrence frequency`,
+         y = stat(density),
+         na.rm=T))+
+     geom_density(alpha=0.8)+
+     facet_wrap(~`Direct patient care task`, ncol = 2)+
+     theme_clean()+     
+     theme(axis.text.x = element_text(angle = 90),
+           legend.position = c(0.88,-0.1),
+           legend.direction = "horizontal",
+           legend.background = element_rect(colour = 0,
+                                            fill = NULL,linewidth = 0),
+           legend.title = element_text(size = 9, colour = "darkgrey"),
+           plot.title = element_text(hjust = 0.5))+
+     labs(title ="Distribution of direct patient care tasks across 24-hour shift",
+          x="Time block(hours)",y="Density function")+
+geom_vline(xintercept = "17:30-19:30", 
+           linetype="dashed", col="red")+
+     geom_vline(xintercept = "07:30-09:30", 
+                linetype="dashed", col="red")
+```
+#Reshaping data
+```{r}
+
+variable.names(tms)
+
+library(reshape2)
+library(ggthemes)
+tms_2<-melt(data = tms,
+                  id.vars = c("Observation instances", "Shift", "Hospital"),
+                  measure.vars = c("Babies at the start of shift", 
+                                   "Admissions",
+                                   "Discharges","Babies on CPAP",
+                                   "Babies on Oxygen (non-CPAP)",
+                                   "Babies on IV therapy",        
+                                   "Babies on Phototherapy",
+                                   "Babies on NGT/OGT",           
+                                   "Babies on Incubator care",
+                                   "Babies on KMC"),
+                  variable.name = "Shift statistic",
+                  value.name = "Numbers")
+
+ggplot(data = tms_2, aes(x=`Shift statistic`, y=Numbers, fill =Shift))+
+     geom_boxplot()+
+     #facet_wrap(~Shift)+
+        theme_bw()+
+     labs(title="Shift workload: N=27 day shifts, N=15 night shifts",
+          x="Workload and case mix", y="Number")+
+     theme(axis.text.x = element_text(angle = 90), 
+           legend.position = c(0.97, 0.95))+
+     scale_x_discrete(labels=c("Babies at the start of shift"="Babies at start of shift",
+                               "Admissions"="Admissions",
+                               "Discharges"="Discharges",
+                               "Babies on CPAP"="On CPAP",
+                               "Babies on Oxygen (non-CPAP)"="On Oxygen",
+                               "Babies on IV therapy"="On IV therapy",
+                               "Babies on Phototherapy"="On phototherapy",
+                               "Babies on NGT/OGT"="On NGT",
+                               "Babies on Incubator vare"="On incubator care",
+                               "Babies on KMC"="On KMC"))+
+     scale_y_continuous(breaks = c(0,5,10,15,20,25,30,35,40,45,50,55,60)
+                        )
+
+```
+#TMS NHPPS
+```{r}
+tms_nhpps<-melt(data = tms,
+                id.vars = c("Shift", "Hospital"),
+                  measure.vars = c("NHPPS_std"),
+                  variable.name = "metric",
+                  value.name = "statistic")
+
+ggplot(data = tms_nhpps)+
+        geom_boxplot(aes(x=Shift, y=statistic, fill = Shift)
+                     )+
+        theme_clean()+
+        scale_y_continuous(breaks = c(0.0,0.4,0.8,1.0,1.2,1.6,1.4,1.8,2.0,2.4,2.8,2.0))+
+        labs(title = "NHPPS, N=42 shifts | Day= 38(23-46) babies, Night=32(17-44) babies",
+             y="standardised NHPPS (hours)")+
+        theme(legend.position = c(0.96,0.95),
+              legend.box.margin = NULL)
+              
+```
+#Stats
+```{r}
+favstats(tms$`Babies at the start of shift`~tms$Shift)
+favstats(tms$NHPPS_std~tms$Shift)
+
+```
+
+
+
+
+
+
+
+
+
