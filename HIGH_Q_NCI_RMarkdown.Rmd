@@ -1,0 +1,2209 @@
+---
+title: '**HIGH_Q Workforce Intervention Effect on Quality of Nursing Care**'
+author: "VKagonya"
+date: "`r Sys.Date()`"
+output: pdf_document
+  html_document:
+    number_sections: true
+---
+
+#setting working directory
+
+```{r include=FALSE}
+#Clear existing NCI and graphics
+#rm(list=ls())
+#graphics.off()
+
+#getwd()
+#setwd("C:/Users/vkagonya/OneDrive - Kemri Wellcome Trust/HIGH-Q Project/DATA ANALYSIS_HIGH_Q/R Projects")
+```
+#Importing the raw dataset
+
+```{r echo=TRUE}
+#Load relevant packages
+
+library(pacman)
+p_load(Hmisc,haven,foreign,readr,
+readxl,tinytex,formatR,lubridate,descr,dplyr,
+mosaic,lattice,ggplot2,gtsummary,gt,tidyverse,
+moments,tinytex,latexpdf,table1, ggthemes, tinytex)
+
+tinytex::install_tinytex(force=TRUE)
+
+NCI<-read_xlsx("C:/Users/vkagonya/OneDrive - Kemri Wellcome Trust/HIGH-Q Project/DATA ANALYSIS_HIGH_Q/R Projects/HIGH-Q MiSSED N Care/HIGH_Q_NCI_R1R2R3_MASTER_WAs_truncated baseline.xlsx")
+dim(NCI)
+```
+
+#Explorative data analysis & data wrangling
+
+```{r include=FALSE}
+
+#Checking missing values
+missing_IP<-is.na(NCI$`In-Patient Number`)
+print(missing_IP)
+missing_patient_cat<- sum(is.na(NCI$`Patient Care category`)) #sum of missing values in a vector
+print(missing_patient_cat)
+
+missing_values1 <- apply(NCI, 2, function(column) any(is.na(column))) #missing values in any column of the dataframe
+print(missing_values1)
+
+#Checking date settings
+library(lubridate) #loading package that helps to handle dates & time
+format(Sys.Date(), "%d/%m/%Y")
+format(Sys.time(), "%H:%M:%S")
+```
+
+#Renaming phases
+
+```{r}
+head(NCI$Phase)
+NCI$Phase[NCI$Phase=="Baseline (pre-intervention)"]<-"Baseline"
+NCI$Phase[NCI$Phase=="Pre-intervention"] <-"Baseline"
+NCI$Phase[NCI$Phase=="Post-intervention (Extra nurses)"]<-"Extra Nurses"
+NCI$Phase[NCI$Phase=="Post-intervention (Ward assistants)"]<-"Nurses+Ward Assistants"
+NCI$Round[NCI$Round=="Round 1"]<-"Baseline"
+NCI$Round[NCI$Round=="Pre-intervention"]<-"Baseline"
+summary(~NCI$Phase)
+```
+
+#Loading additional wrangling libraries
+```{r include=FALSE}
+NCI <- NCI[order(NCI$Round), ]
+
+library(gtsummary) #package for creating 'publication-ready analytical & summary tables
+library(broom) #package works with gt summary for formatting tables
+library(labelled) #package works with gt summary for formatting tables
+library(tidyverse) #package for transforming and better presenting data
+options(digits = 2) #Setting the no of decimal places - more globally
+library(mosaic) #load package for descriptive statistics
+library(descr)
+library(ggplot2)
+#SHIFT INFORMATION/STATISTICS
+#NCI$`Shift type`<-factor(NCI$`Shift type`)
+#NCI$Shift_type2<-recode(NCI$`Shift type`,"Weekend night"="Night shift",
+                           #"Weekday night"="Night shift",
+                           #"Weekday day"="Day shift",
+                           #"Weekend day"="Day shift") #creating a day & night shift variable
+#table(NCI$`Shift type`, NCI$Phase)
+
+```
+
+#Shift Duration
+```{r}
+library(mosaic) #load package for descriptive statistics
+library(descr)
+library(lubridate) #loading package that helps to handle dates & time
+format(Sys.Date(), "%Y/%m/%d")
+format(Sys.time(), "%H:%M:%S")
+
+class(NCI$`Observation start date and time`)
+class(NCI$`Observation end date and time`)
+
+NCI$`Observation start date and time2`<-as.POSIXct(NCI$`Observation start date and time`, format="%d/%m/%Y %H:%M", tz='gmt')
+NCI$`Observation end date and time2`<-as.POSIXct(NCI$`Observation end date and time`, format="%d/%m/%Y %H:%M", tz='gmt')
+
+#NCI$`Observation start date and time2`<-as_datetime(NCI$Observation.start.date.and.time, format="%d/%m/%Y %H:%M", tz='gmt')
+#NCI$`Observation end date and time2`<-as_datetime(NCI$Observation.end.date.and.time, format="%d/%m/%Y %H:%M", tz='gmt')
+
+NCI$shift_duration<-difftime(NCI$`Observation end date and time2`,NCI$`Observation start date and time2`,'gmt', units = 'hours') 
+
+NCI$shift_duration<-as.numeric(NCI$shift_duration, units='hours', sprintf(NCI$shift_duration, fmt='%#.2f'))
+head(NCI$shift_duration)
+
+#Also, NCI$shift_duration<-as.numeric(NCI$shift_duration, units='hours', 
+                          #format(NCI$shift_duration, digits=2))
+
+favstats(NCI$shift_duration~NCI$Shift_type2)
+favstats(NCI$shift_duration~NCI$Site_Code)
+
+NCI$`Date of data collection`
+
+no_of_shifts<-NCI %>% 
+  select(Site_Code, Phase, `Date of data collection`) %>% 
+  group_by(Site_Code,`Date of data collection`) %>% 
+  mutate(no_of_shifts=NA_real_) %>% 
+  summarise(no_of_shifts=n()
+            )%>% 
+  as_tibble()
+head(no_of_shifts)
+
+```
+
+#To drop Observations that were discontinued midway
+```{r eval=FALSE, warning=TRUE, include=FALSE}
+
+#NCI %>% filter(NCI$shift_duration<=6.0)
+
+#Removing the record with these discontinued shifts (<6hrs=58161, 6-7hrs=71025,71030)
+#NCI<- NCI[-which(NCI$`Participant ID`=="52161"), ] #Removed 52161 - duration under 6 hours limit of day shift observation 
+
+```
+
+#Shift duration and total observation time in hours
+```{r eval=FALSE, include=FALSE}
+library(ggplot2)
+library(ggthemes)
+NCI %>% select(`Date of data collection`,
+               `Observation start date and time`,
+               `Observation end date and time`,
+               shift_duration) %>% 
+  View()
+
+#How shift duration varies by shift type and hospital
+ggplot(data = NCI)+(aes(x=Round, y=shift_duration, fill=Site_Code))+
+  geom_boxplot()+
+  #coord_flip()+
+    theme_clean()+
+       scale_fill_discrete(name="Hospital")+
+  labs(title = 'How observation duration compares across hospitals and phases',
+       y="Shift duration(hours)", x="Phase")
+
+#Total observation time in hours
+total_observation_hours<-NCI %>%
+  group_by(Phase) %>% 
+  summarise(total_observation_hours=sum(shift_duration
+  ))
+sum(is.na(NCI$shift_duration))
+is.na(total_observation_hours)
+```
+
+#No of interventions per baby
+```{r}
+NCI$`No of interventions`[NCI$`No of interventions`==0]<-NA_real_
+NCI$`No of interventions`[NCI$`No of interventions`=='NA']<-NA_real_
+
+table(NCI$`No of interventions`,NCI$Round)
+NCI$`No of interventions`<-as.numeric(NCI$`No of interventions`)
+
+         
+NCI$`No of interventions per baby`<-cut(NCI$`No of interventions`, 
+                                        breaks = c(0,2,4,7), 
+                                        include.lowest = T,
+                                        labels = c('1-2', '3-4','>4'),
+                                        right = T, na.rm=T)
+                                        
+
+NCI %>% select(Round,`No of interventions`, `No of interventions per baby`) %>% 
+  View()
+table(NCI$`No of interventions per baby`, NCI$`Patient Care category`)
+
+
+R2_R3_NCI<-NCI %>% subset(Round=="Round 2" | Round=="Round 3")
+
+#No of interventions per baby
+interventions_per_baby<-tbl_summary(R2_R3_NCI,
+                                    include=c(`Is the baby on Oxygen (non-CPAP)`,
+                                              `Is the baby on CPAP`,
+                                              `Is the baby on intravenous (IV) cannula (without fluid)`,
+                                              `Is the baby on Intravenous (IV) Fluids`,
+                                              `Is the baby on Nasogastric (NGT) / Orogastric tube (OGT)`,
+                                              `Is the baby on Incubator Care`,
+                                              `Is the baby on KMC`,
+                                              `Is the baby on Phototherapy`),
+                                    type=list(c(`Is the baby on Oxygen (non-CPAP)`,
+                                                `Is the baby on CPAP`,
+                                                `Is the baby on intravenous (IV) cannula (without fluid)`,
+                                                `Is the baby on Intravenous (IV) Fluids`,
+                                                `Is the baby on Nasogastric (NGT) / Orogastric tube (OGT)`,
+                                                `Is the baby on Incubator Care`,
+                                                `Is the baby on KMC`,
+                                                `Is the baby on Phototherapy`)~'categorical'),
+                                    by=Site_Code,
+                                    missing='no',
+                                    missing_text = NULL) %>%  
+     add_overall(last=T) %>% 
+     add_p(test=everything()~"fisher.test") %>% bold_p() %>%bold_levels() %>% 
+     modify_header(label="*Intervention received by the baby*", 
+                    update = all_stat_cols()~"{level}<br>N={n}") %>% 
+     modify_caption("**Hospital**")
+
+print(interventions_per_baby)
+
+median_interventions_per_baby<-R2_R3_NCI %>% 
+     select(Site_Code,`No of interventions per baby`) %>% 
+tbl_summary(by=Site_Code,
+            missing = "no",
+            missing_text = NULL) %>% 
+     add_overall(last=T) %>%
+  add_p() %>% 
+     bold_labels() %>% 
+     modify_header(label=" ",
+                   update = all_stat_cols()~'{level}<br>N={n}') %>% 
+     modify_caption("**No of interventions per baby**")
+print(median_interventions_per_baby)
+
+R2_R3_NCI %>% select(Site_Code, Phase, `No of interventions`) %>% View()
+
+library(ggthemes)
+
+
+table(R2_R3_NCI$`Patient Care category`, R2_R3_NCI$`No of interventions per baby`)
+z<-table(R2_R3_NCI$`Patient Care category`, R2_R3_NCI$`No of interventions per baby`)
+prop.table(z)*100
+table1(~`No of interventions per baby`|`Patient Care category`, data=NCI)
+
+```
+
+#Babies utilising technology - Case mix per phase & site
+```{r echo=TRUE}
+tech_by_site<-tbl_summary(R2_R3_NCI, 
+                      include = c(`Total number of patients on the ward`,
+                                  `Number of babies on Oxygen`,
+                                  `Number of babies on CPAP`,
+                                  `Number of babies on incubator care`,
+                                  `Number of babies on Nasogastric/ Orogastric feeding`,
+                                  `Number of babies on phototherapy`),
+                      type = list(`Number of babies on CPAP` ~ 'continuous'),
+                      by = `Site_Code`,
+                     digits = all_continuous()~c(0,0),
+                     missing = 'no')%>%
+                    add_overall(last=T) %>% 
+                    add_p()%>%bold_p() %>% 
+                    bold_labels()%>%
+                    modify_header(label="  ", update = all_stat_cols()~"**{level}**<br>N ={n}")%>%
+                    modify_spanning_header(c("stat_1", "stat_2", "stat_3", "stat_4")~"Hospital") %>% 
+                    modify_caption("Utilisation of essential technologies per shift") %>% 
+                    modify_footnote(all_stat_cols()~"*Median (IQR),  N= No of patients*")
+print(tech_by_site)
+
+tech_by_phase<-tbl_summary(NCI, 
+                      include = c(`Total number of patients on the ward`,
+                                  `Number of babies on Oxygen`,
+                                  `Number of babies on CPAP`,
+                                  `Number of babies on incubator care`,
+                                  `Number of babies on Nasogastric/ Orogastric feeding`,
+                                  `Number of babies on phototherapy`), 
+                      type = list(c(`Total number of patients on the ward`,
+                                  `Number of babies on Oxygen`,
+                                  `Number of babies on CPAP`,
+                                  `Number of babies on incubator care`,
+                                  `Number of babies on Nasogastric/ Orogastric feeding`,
+                                  `Number of babies on phototherapy`)~'continuous'),
+                      by = `Phase`,
+                      missing='no',
+                      missing_text=NULL,
+                      digits = all_continuous()~c(0,0))%>%
+                    modify_header(label=" ", update=all_stat_cols()~"**{level}**<br>N={n}")%>%
+                    add_overall(last=T) %>% add_p()%>%bold_p() %>% 
+                    modify_caption("Utilisation of technologies per shift")%>%bold_labels() %>% 
+                    modify_spanning_header(c('stat_1', 'stat_2', 'stat_3')~"Intervention Phases") %>% 
+                    modify_footnote(all_stat_cols()~"*Median (IQR),  N= No of patients*")
+print(tech_by_phase)
+
+
+
+```
+
+#Dates-No of shifts- count
+```{r eval=FALSE, include=FALSE}
+library(lubridate)
+class(NCI$`Date of data collection`)
+#option 1
+NCI$date_data_collection<-format(as_date(NCI$`Date of data collection`), 
+                                 format="%d-%m-%Y") %>% 
+  as_date(format="%d-%m-%Y")
+class(NCI$date_data_collection)
+
+#option 2
+date_count<-cut.Date(NCI$date_data_collection, breaks = 'days', right = F)  date_count2<-as_tibble(table(date_count, useNA = "always")
+                       ) %>% 
+                print()
+
+date_count2$n[date_count2$n==0]<-NA_real_
+mean(date_count2$n)
+
+#option 3
+#date produced as factor
+#NCI$date_count2<-cut.Date(NCI$`Date of data collection`,
+                          #breaks = 'days', right = F) 
+NCI<-NCI %>%
+  rowwise() %>% 
+  group_by(Site_Code,`Date of data collection`) %>% 
+  mutate(date_count=NA_real_,
+        date_count=aggregate(tibble(count=`Date of data collection`),
+        list(value=`Date of data collection`),
+         length)
+        )
+
+NCI %>% 
+  select(`Participant ID`, Site_Code, Round, NHPPS,`Date of data collection`,date_countx) %>% 
+  View()
+
+sum(is.na(NCI$date_count3$count))
+
+table(NCI$date_count$count,NCI$Site_Code)
+table(NCI$Round,NCI$date_count$count)
+
+sum(NCI$date_count$count)
+
+```
+
+#BABY BIODATA
+```{r echo=TRUE}
+list(NCI$`Patient Care category`)
+summary(~NCI$`Patient Care category`)
+
+
+NCI$`Patient Care category`<-recode(NCI$`Patient Care category`, 'Category A'='Category A (critical/hdu)',
+                                    'Category B'= 'Category B (unstable)',
+                                    'Category C'='Category C (stable)')
+
+```
+#recoding age to categorical
+```{r include=FALSE}
+is.na(NCI$`Current age`) #checking for missing value
+missing_age1 <- sum(is.na(NCI$`Current age`))
+print(missing_age1)
+#NCI%>%filter(is.na(NCI$`Current age`))
+
+class(NCI$`Current age`)
+favstats(NCI$`Current age`)
+NCI$Age_group<-cut(NCI$`Current age`, breaks = c(0, 28, 100), include.lowest=T,
+                                    labels = c('Neonate','Infant'), right = TRUE)
+class(NCI$Age_group)
+table(NCI$Age_group,NCI$Phase)
+
+#NCI%>%filter(NCI$Age_group=="Infant"& NCI$`Current age`>=28) #Should return 0 records
+```
+
+#Rename the NCI variable names
+```{r include=FALSE}
+NCI<-NCI%>%rename("Routine nursing care score"="Routine Nursing Score (proportion)")
+NCI<-NCI%>%rename("Vital signs score"="Total Vital signs score (%)")
+NCI<-NCI%>%rename("Routine newborn care score"="Routine newborn care_Score")
+NCI<-NCI%>%rename("Feeding score"="Feeding_Score")
+NCI<-NCI %>% rename("NGT feeding process score"="NGT Feeding process_Score")
+NCI<-NCI%>%rename("Medication score"="Total Medication Score_less process")
+NCI<-NCI%>%rename("Medication administration (plus process)"="All Medication Administration_plus IV process")
+NCI<-NCI%>%rename("Phototherapy score"="Phototherapy Score")
+NCI<-NCI%>%rename("CPAP score"="CPAP_score")
+NCI<-NCI%>%rename("Oxygen therapy(non_CPAP) score"="Oxygen non_cpap score")
+NCI<-NCI%>%rename("KMC score"="KMC score")
+NCI<-NCI%>%rename("Documentation score"="Total Documentation_score")
+
+```
+
+#Recoding NAs for NGT Feeding process
+```{r}
+#Recoding NAs for NGT Feeding Process
+NCI$`Check tube positioning (1st)`[NCI$`Check tube positioning (1st)`=="Not applicable"]<-NA_character_
+NCI$`Check tube positioning (2nd)`[NCI$`Check tube positioning (2nd)`=="Not applicable"]<-NA_character_
+NCI$`Check tube positioning (3rd)`[NCI$`Check tube positioning (3rd)`=="Not applicable"]<-NA_character_
+NCI$`Check tube positioning (4th)`[NCI$`Check tube positioning (4th)`=="Not applicable"]<-NA_character_
+
+NCI$`measure feeds (1st)`[NCI$`measure feeds (1st)`=="Not applicable"]<-NA_character_
+NCI$`measure feeds (2nd)`[NCI$`measure feeds (2nd)`=="Not applicable"]<-NA_character_
+NCI$`measure feeds (3rd)`[NCI$`measure feeds (3rd)`=="Not applicable"]<-NA_character_
+NCI$`measure feeds (4th)`[NCI$`measure feeds (4th)`=="Not applicable"]<-NA_character_
+
+NCI$`Baby positioned after first NGTube feed`[NCI$`Baby positioned after first NGTube feed`=="Not applicable"]<-NA_character_
+NCI$`Baby positioned after 2nd NGTube feed`[NCI$`Baby positioned after 2nd NGTube feed`=="Not applicable"]<-NA_character_
+NCI$`Baby positioned after 3rd NGTube feed`[NCI$`Baby positioned after 3rd NGTube feed`=="Not applicable"]<-NA_character_
+NCI$`Baby positioned after 4th NGTube feed`[NCI$`Baby positioned after 4th NGTube feed`=="Not applicable"]<-NA_character_
+
+```
+
+#Recoding NAs for IV medication process
+```{r}
+NCI$`Review of treatment sheet`[NCI$`Review of treatment sheet`=="Not applicable"]<-NA_character_
+NCI$ `Cannula flush with saline before drug administration`[NCI$ `Cannula flush with saline before drug administration`=="Not applicable"]<-NA_character_
+NCI$`Cannula flush with saline after drug administration`[NCI$`Cannula flush with saline after drug administration`=="Not applicable"]<-NA_character_
+
+```
+#Recoding NAs
+```{r}
+NCI$`Health talks/ Communication to parents`[NCI$`Health talks/ Communication to parents`=="Indeterminate"]<-NA_character_
+NCI$`Health talks/ Communication to parents`[NCI$`Health talks/ Communication to parents`=="Not applicable"]<-NA_character_
+#
+NCI$`A nurse attends ward rounds with the doctor (s) to see the patient.`[NCI$`A nurse attends ward rounds with the doctor (s) to see the patient.`=="Not applicable"]<-NA_character_
+#
+NCI$`Communication to caregiver`[NCI$`Communication to caregiver`=="Not applicable"]<-NA_character_
+NCI$`Communication to caregiver`[NCI$`Communication to caregiver`=="Indeterminate"]<-NA_character_
+#
+NCI$`Cleaning baby (Top-tailing)`[NCI$`Cleaning baby (Top-tailing)`=="Not applicable"]<-NA_character_
+NCI$`Cleaning baby (Top-tailing)`[NCI$`Cleaning baby (Top-tailing)`=="Indeterminate"]<-NA_character_
+#
+NCI$`Linen change`[NCI$`Linen change`=="Not applicable"]<-NA_character_
+NCI$`Linen change`[NCI$`Linen change`=="Indeterminate"]<-NA_character_
+#
+NCI$`Weight check...210`[NCI$`Weight check...210`=="Not applicable"]<-NA_character_
+#
+NCI$`Check incubator settings`[NCI$`Check incubator settings`=="Not applicable"]<-NA_character_
+NCI$`Check incubator settings`[NCI$`Check incubator settings`=="Indeterminate"]<-NA_character_
+#
+NCI$`Diaper change`[NCI$`Diaper change`=="Not applicable"]<-NA_character_
+#
+NCI$`Cord care`[NCI$`Cord care`=="Not applicable"]<-NA_character_
+NCI$`Cord care`[NCI$`Cord care`=="Indeterminate"]<-NA_character_
+#
+NCI$`Turning the baby 3`[NCI$`Turning the baby 3`=="Not applicable"]<-NA_character_
+#
+NCI$`Turning the baby 4`[NCI$`Turning the baby 4`=="Not applicable"]<-NA_character_
+NCI$`Turning the baby 4`[NCI$`Turning the baby 4`=="Indeterminate"]<-NA_character_
+#
+NCI$`First feed given`[NCI$`First feed given`=="Not applicable"]<-NA_character_
+NCI$`Second feed given`[NCI$`Second feed given`=="Not applicable"]<-NA_character_
+#
+NCI$`Third feed given`[NCI$`Third feed given`=="Not applicable"]<-NA_character_
+NCI$`Third feed given`[NCI$`Third feed given`=="Indeterminate"]<-NA_character_
+#
+NCI$`Fourth feed given`[NCI$`Fourth feed given`=="Not applicable"]<-NA_character_
+NCI$`Fourth feed given`[NCI$`Fourth feed given`=="Indeterminate"]<-NA_character_
+#
+NCI$`Was the 1st IV medication given?`[NCI$`Was the 1st IV medication given?`=="Not applicable"]<-NA_character_
+NCI$`Was the 1st IV medication given?`[NCI$`Was the 1st IV medication given?`=="Indeterminate"]<-NA_character_
+NCI$`Was the 2nd IV medication given?`[NCI$`Was the 2nd IV medication given?`=="Not applicable"]<-NA_character_
+NCI$`Was the 2nd IV medication given?`[NCI$`Was the 2nd IV medication given?`=="Indeterminate"]<-NA_character_
+
+NCI$`Was the 3rd IV medication given?`[NCI$`Was the 3rd IV medication given?`=="Not applicable"]<-NA_character_
+NCI$`Was the 4th IV medication given?`[NCI$`Was the 4th IV medication given?`]
+
+NCI$`Was  the 1st oral medication given?`[NCI$`Was  the 1st oral medication given?`=="Not applicable"]<-NA_character_
+NCI$`Was  the 1st oral medication given?`[NCI$`Was  the 1st oral medication given?`=="Indeterminate"]<-NA_character_
+
+NCI$`Was the 2nd oral medication given?`[NCI$`Was the 2nd oral medication given?`=="Not applicable"]<-NA_character_
+NCI$`Was the 2nd oral medication given?`[NCI$`Was the 2nd oral medication given?`=="Indeterminate"]<-NA_character_
+
+NCI$`Was  the 3rd oral medication given?`[NCI$`Was  the 3rd oral medication given?`=="Not applicable"]<-NA_character_
+```
+#Other NAs & Indeterminate
+```{r}
+NCI$`Health talks/ Communication to parents`[NCI$`Health talks/ Communication to parents`=="Indeterminate"]<-NA_character_
+NCI$`Health talks/ Communication to parents`[NCI$`Health talks/ Communication to parents`=="Not applicable"]<-NA_character_
+NCI$`Cleaning baby (Top-tailing)`[NCI$`Cleaning baby (Top-tailing)`=="Not applicable"]<-NA_character_
+NCI$`Cleaning baby (Top-tailing)`[NCI$`Cleaning baby (Top-tailing)`=="Indeterminate"]<-NA_character_
+#
+NCI$`Linen change`[NCI$`Linen change`=="Not applicable"]<-NA_character_
+NCI$`Linen change`[NCI$`Linen change`=="Indeterminate"]<-NA_character_
+#
+NCI$`Weight check...210`[NCI$`Weight check...210`=="Not applicable"]<-NA_character_
+#
+NCI$`Check incubator settings`[NCI$`Check incubator settings`=="Not applicable"]<-NA_character_
+NCI$`Check incubator settings`[NCI$`Check incubator settings`=="Indeterminate"]<-NA_character_
+#
+NCI$`Diaper change`[NCI$`Diaper change`=="Not applicable"]<-NA_character_
+#
+NCI$`Cord care`[NCI$`Cord care`=="Not applicable"]<-NA_character_
+NCI$`Cord care`[NCI$`Cord care`=="Indeterminate"]<-NA_character_
+#
+NCI$`Turning the baby 3`[NCI$`Turning the baby 3`=="Not applicable"]<-NA_character_
+#
+NCI$`Turning the baby 4`[NCI$`Turning the baby 4`=="Not applicable"]<-NA_character_
+NCI$`Turning the baby 4`[NCI$`Turning the baby 4`=="Indeterminate"]<-NA_character_
+#
+NCI$`First feed given`[NCI$`First feed given`=="Not applicable"]<-NA_character_
+NCI$`Second feed given`[NCI$`Second feed given`=="Not applicable"]<-NA_character_
+#
+NCI$`Third feed given`[NCI$`Third feed given`=="Not applicable"]<-NA_character_
+NCI$`Third feed given`[NCI$`Third feed given`=="Indeterminate"]<-NA_character_
+#
+NCI$`Fourth feed given`[NCI$`Fourth feed given`=="Not applicable"]<-NA_character_
+NCI$`Fourth feed given`[NCI$`Fourth feed given`=="Indeterminate"]<-NA_character_
+#
+NCI$`Was the 1st IV medication given?`[NCI$`Was the 1st IV medication given?`=="Not applicable"]<-NA_character_
+NCI$`Was the 1st IV medication given?`[NCI$`Was the 1st IV medication given?`=="Indeterminate"]<-NA_character_
+NCI$`Was the 2nd IV medication given?`[NCI$`Was the 2nd IV medication given?`=="Not applicable"]<-NA_character_
+NCI$`Was the 2nd IV medication given?`[NCI$`Was the 2nd IV medication given?`=="Indeterminate"]<-NA_character_
+
+NCI$`Was the 3rd IV medication given?`[NCI$`Was the 3rd IV medication given?`=="Not applicable"]<-NA_character_
+NCI$`Was the 4th IV medication given?`[NCI$`Was the 4th IV medication given?`]
+
+NCI$`Was  the 1st oral medication given?`[NCI$`Was  the 1st oral medication given?`=="Not applicable"]<-NA_character_
+NCI$`Was  the 1st oral medication given?`[NCI$`Was  the 1st oral medication given?`=="Indeterminate"]<-NA_character_
+
+NCI$`Was the 2nd oral medication given?`[NCI$`Was the 2nd oral medication given?`=="Not applicable"]<-NA_character_
+NCI$`Was the 2nd oral medication given?`[NCI$`Was the 2nd oral medication given?`=="Indeterminate"]<-NA_character_
+
+NCI$`Was  the 3rd oral medication given?`[NCI$`Was  the 3rd oral medication given?`=="Not applicable"]<-NA_character_
+
+```
+#Multiplying the scores by 100
+```{r eval=FALSE, include=FALSE}
+NCI$`Routine nursing care score`<-NCI$`Routine nursing care score`*100
+NCI$`Vital signs score`<-NCI$`Vital signs score`*100
+NCI$`Routine newborn care score`<-NCI$`Routine newborn care score`*100
+NCI$`Feeding score`<-NCI$`Feeding score`*100
+NCI$`NGT feeding process score`<-NCI$`NGT feeding process score`*100
+NCI$`Medication score`<-NCI$`Medication score`*100
+NCI$`Medication administration (plus process)`<-NCI$`Medication administration (plus process)`*100
+NCI$`Phototherapy score`<-NCI$`Phototherapy score`*100
+NCI$`CPAP score`<-NCI$`CPAP score`*100
+NCI$`Oxygen therapy(non_CPAP) score`<-NCI$`Oxygen therapy(non_CPAP) score`*100
+NCI$`KMC score`<-NCI$`KMC score`*100
+NCI$`Documentation score`<-NCI$`Documentation score`*100
+
+```
+
+#Transforming nursing staffing variables to numeric
+#Handling the 'Not applicable'
+```{r include=FALSE}
+#the NAs
+NCI$`Number of nurses in the Morning shift (07:30 to 12:30)`[NCI$`Number of nurses in the Morning shift (07:30 to 12:30)`=="NA"]<-NA_real_
+NCI$`Number of nurses on the  Evening shift (07:30 to 16:30)`[NCI$`Number of nurses on the  Evening shift (07:30 to 16:30)`=="NA"]<-NA_real_
+NCI$ `Number of nurses on the Afternoon shift (12:30 - 18:30)`[NCI$ `Number of nurses on the Afternoon shift (12:30 - 18:30)`=='NA']<-NA_real_
+NCI$`Number of nurses on the night shift (18:30 - 07:30 )`[NCI$`Number of nurses on the night shift (18:30 - 07:30 )`=="NA"]<-NA_real_
+NCI$`Number of nurses in the other shift type (mentioned above)`[NCI$`Number of nurses in the other shift type (mentioned above)`=="NA"]<-NA_real_
+NCI$`Number of nursing officer interns on the shifts`[NCI$`Number of nursing officer interns on the shifts`=="NA"]<-NA_real_
+#the Not applicables
+NCI$`Number of nurses in the Morning shift (07:30 to 12:30)`[NCI$`Number of nurses in the Morning shift (07:30 to 12:30)`=="Not applicable"]<-NA_real_
+NCI$`Number of nurses on the  Evening shift (07:30 to 16:30)`[NCI$`Number of nurses on the  Evening shift (07:30 to 16:30)`=="Not applicable"]<-NA_real_
+NCI$ `Number of nurses on the Afternoon shift (12:30 - 18:30)`[NCI$ `Number of nurses on the Afternoon shift (12:30 - 18:30)`=='Not applicable']<-NA_real_
+NCI$`Number of nurses on the night shift (18:30 - 07:30 )`[NCI$`Number of nurses on the night shift (18:30 - 07:30 )`=="Not applicable"]<-NA_real_
+NCI$`Number of nurses in the other shift type (mentioned above)`[NCI$`Number of nurses in the other shift type (mentioned above)`=="Not applicable"]<-NA_real_
+NCI$`Number of nursing officer interns on the shifts`[NCI$`Number of nursing officer interns on the shifts`=="Not applicable"]<-NA_real_
+```
+#Staffing As numeric
+```{r}
+NCI$`Number of nurses in the Morning shift (07:30 to 12:30)`<-as.numeric(NCI$`Number of nurses in the Morning shift (07:30 to 12:30)`)
+NCI$`Number of nurses on the  Evening shift (07:30 to 16:30)`<-as.numeric(NCI$`Number of nurses on the  Evening shift (07:30 to 16:30)`)
+NCI$ `Number of nurses on the Afternoon shift (12:30 - 18:30)`<-as.numeric(NCI$ `Number of nurses on the Afternoon shift (12:30 - 18:30)`)
+NCI$`Number of nurses on the night shift (18:30 - 07:30 )`<-as.numeric(NCI$`Number of nurses on the night shift (18:30 - 07:30 )`)
+NCI$`Number of nurses in the other shift type (mentioned above)`<-as.numeric(NCI$`Number of nurses in the other shift type (mentioned above)`)
+NCI$`Number of nursing officer interns on the shifts`<-as.numeric(NCI$`Number of nursing officer interns on the shifts`)
+
+```
+
+#Total Nursing hours per site - Day Shift
+```{r include=FALSE, paged.print=FALSE}
+#total nursing hours - day shift
+#H1
+NCI<-NCI %>% 
+  mutate(H1_day_n_hours=case_when(
+    (Site_Code=="H1"& Shift_type2=="Day shift")~`Number of nurses in the other shift type (mentioned above)`*10,
+    (Site_Code=="H1"& Shift_type2!="Day shift")~NA_real_,
+    TRUE~NA)
+  )%>%
+  as_tibble()
+         
+#H2
+NCI<-NCI %>% 
+  rowwise() %>% 
+  mutate(H2_day_n_hours=sum(
+    `Number of nurses in the Morning shift (07:30 to 12:30)`*5,
+      `Number of nurses on the  Evening shift (07:30 to 16:30)`*9,
+      `Number of nurses on the Afternoon shift (12:30 - 18:30)`*6,na.rm=T),
+  ) %>% 
+  mutate(H2_day_n_hours=if_else(Site_Code=="H2"&Shift_type2=="Day shift",H2_day_n_hours,NA_real_)) %>% 
+  as_tibble()
+
+#cross-check
+NCI  %>% 
+  select(Site_Code,Round,Shift_type2,H1_day_n_hours,
+         H2_day_n_hours) %>% 
+View()
+
+#H3 - round 1 & round 3
+NCI<-NCI %>% 
+  rowwise() %>% 
+  mutate(H3_day_n_hrs_r1_3=sum(
+    `Number of nurses in the Morning shift (07:30 to 12:30)`*5,
+      `Number of nurses on the  Evening shift (07:30 to 16:30)`*9,
+      `Number of nurses on the Afternoon shift (12:30 - 18:30)`*6, 
+    `Number of nurses in the other shift type (mentioned above)`*10,na.rm=T),
+  ) %>% 
+  mutate(H3_day_n_hrs_r1_3=if_else(Site_Code=="H3"&
+                                     Shift_type2=="Day shift"&
+                                     (Round=="Baseline" | Round=="Round 3"),
+                                   H3_day_n_hrs_r1_3,NA_real_)) %>% 
+  as_tibble()
+
+#H3 - round 2
+NCI<-NCI %>% 
+  rowwise() %>% 
+  mutate(H3_day_n_hrs_r2=sum(`Number of nurses in the other shift type (mentioned above)`*10,na.rm=T),
+  ) %>% 
+  mutate(H3_day_n_hrs_r2=if_else(Site_Code=="H3"&
+                                   Shift_type2=="Day shift"&
+                                   Round=="Round 2",H3_day_n_hrs_r2,NA_real_)) %>% 
+  as_tibble()
+
+#Cross-check
+NCI %>% 
+  select(Site_Code,Round,`Number of nurses in the Morning shift (07:30 to 12:30)`,
+      `Number of nurses on the  Evening shift (07:30 to 16:30)`,
+      `Number of nurses on the Afternoon shift (12:30 - 18:30)`, 
+    `Number of nurses in the other shift type (mentioned above)`,
+    H3_day_n_hrs_r1_3, H3_day_n_hrs_r2) %>% View()
+
+#Combining H3 day_n_hours for round 2 & r1_3
+NCI<-NCI %>% 
+  rowwise() %>% 
+  mutate(H3_day_n_hours=NA_real_,
+         H3_day_n_hours=if_else(Shift_type2=="Day shift"&Site_Code=="H3",
+                                sum(H3_day_n_hrs_r1_3,
+                             H3_day_n_hrs_r2, na.rm=T),H3_day_n_hours)
+         )%>%
+  as_tibble()
+  
+#cross-check
+#NCI  %>% 
+  #select(Site_Code,Round,Shift_type2,H2_day_n_hours,
+         #H3_day_n_hrs_r1_3,H3_day_n_hrs_r2,H3_day_n_hours) %>% 
+#View()
+
+#H4
+NCI<-NCI %>% 
+  rowwise() %>% 
+  mutate(H4_day_n_hours=sum(
+    `Number of nurses in the Morning shift (07:30 to 12:30)`*5,
+      `Number of nurses on the  Evening shift (07:30 to 16:30)`*9,
+      `Number of nurses on the Afternoon shift (12:30 - 18:30)`*6,na.rm=T),
+  ) %>% 
+  mutate(H4_day_n_hours=if_else(Site_Code=="H4"&Shift_type2=="Day shift",H4_day_n_hours,NA_real_)) %>% 
+  as_tibble()
+
+#cross-check
+#NCI  %>% 
+  #select(Site_Code,Round,Shift_type2,H1_day_n_hours,
+         #H2_day_n_hours,H3_day_n_hours,H4_day_n_hours) %>% 
+#View()
+
+#Cross-check
+#NCI %>% 
+  #select(Site_Code, Round,Shift_type2,
+         #`Number of nurses in the Morning shift (07:30 to 12:30)`,
+      #`Number of nurses on the  Evening shift (07:30 to 16:30)`,
+      #`Number of nurses on the Afternoon shift (12:30 - 18:30)`,
+      #`Number of nurses in the other shift type (mentioned above)`,
+      #H1_day_n_hours,H2_day_n_hours,H3_day_n_hours,H4_day_n_hours) %>% View()
+
+#Combining total nursing hours - day shift
+NCI<-NCI %>% 
+  mutate(total_n_hours_day=case_when(
+    (Site_Code=="H1"& Shift_type2=="Day shift")~H1_day_n_hours,
+    (Site_Code=="H1"& Shift_type2!="Day shift")~NA_real_,
+    (Site_Code=="H2"& Shift_type2=="Day shift")~H2_day_n_hours,
+    (Site_Code=="H2"& Shift_type2!="Day shift")~NA_real_,
+    (Site_Code=="H3"& Shift_type2=="Day shift")~H3_day_n_hours,
+    (Site_Code=="H3"& Shift_type2!="Day shift")~NA_real_,
+    (Site_Code=="H4"& Shift_type2=="Day shift")~H4_day_n_hours,
+    (Site_Code=="H4"& Shift_type2!="Day shift")~NA_real_,
+    TRUE~NA)
+    )
+#Cross-check
+#NCI %>% 
+  #select(Site_Code,Phase,H1_day_n_hours,H2_day_n_hours,
+         #H3_day_n_hours,H4_day_n_hours,total_n_hours_day) %>% 
+  #View()
+
+```
+#total nursing hours - night shift
+```{r include=FALSE}
+NCI<-NCI %>% 
+  mutate(total_n_hours_night=case_when((Site_Code=="H1"& 
+                                          Shift_type2=="Night shift")~`Number of nurses on the night shift (18:30 - 07:30 )`*14,
+                                       (Site_Code=="H1"& 
+                 Shift_type2!="Night shift")~NA_real_,
+                 (Site_Code=="H2"& 
+       Shift_type2=="Night shift")~`Number of nurses on the night shift (18:30 - 07:30 )`*13,
+       (Site_Code=="H2"& 
+       Shift_type2!="Night shift")~NA_real_,
+       (Site_Code=="H3"& 
+       Shift_type2=="Night shift"&
+       (Round=="Baseline" | Round=="Round 3"))~`Number of nurses on the night shift (18:30 - 07:30 )`*13,
+       (Site_Code=="H3"&
+       Shift_type2=="Night shift"&
+       (Round=="Round 2"))~`Number of nurses on the night shift (18:30 - 07:30 )`*14,
+       (Site_Code=="H3"& 
+       Shift_type2!="Night shift")~NA_real_,
+       (Site_Code=="H4"& 
+       Shift_type2=="Night shift")~`Number of nurses on the night shift (18:30 - 07:30 )`*13,
+       (Site_Code=="H4"& 
+       Shift_type2!="Night shift")~NA_real_,
+    TRUE~NA)
+    ) %>%
+  mutate(total_n_hours_night=case_when((Site_Code=="H1"& 
+                                          Shift_type2=="Night shift" & 
+                                          Round=="Round 3")~`Number of nurses in the other shift type (mentioned above)`*14,
+                                       (Site_Code=="H1"& 
+                                          Shift_type2=="Night shift" & 
+                                          Round=="Round 3")~`Number of nurses on the night shift (18:30 - 07:30 )`*14,
+      (Site_Code=='H3' & 
+         Shift_type2=='Night shift'& 
+         Round=="Round 2")~`Number of nurses in the other shift type (mentioned above)`*14,
+      TRUE~total_n_hours_night)
+  ) %>% 
+  as_tibble()
+      
+
+
+#cross-check
+NCI %>% select(Site_Code,Phase,
+               `Number of nurses in the Morning shift (07:30 to 12:30)`,
+           `Number of nurses on the  Evening shift (07:30 to 16:30)`,
+          `Number of nurses on the Afternoon shift (12:30 - 18:30)`,
+            `Number of nurses in the other shift type (mentioned above)`,
+          `Number of nurses on the night shift (18:30 - 07:30 )`,Shift_type2,
+               total_n_hours_day,total_n_hours_night) %>% 
+  View()
+
+NCI %>% filter(total_n_hours_day<=10) #71016
+
+NCI %>% filter(total_n_hours_day>=40) #Outlier seems correct
+
+```
+#total nursing hours-combined day & night
+```{r}
+NCI<-NCI %>% 
+  mutate(unstd_n_hours=case_when(
+    (Shift_type2=="Day shift")~total_n_hours_day,
+    (Shift_type2!="Day shift")~total_n_hours_night,
+    TRUE~NA)
+    ) %>% 
+  as_tibble()
+#Cross-check
+NCI %>% 
+  select(`Participant ID`, Site_Code, Phase,`Number of nurses in the Morning shift (07:30 to 12:30)`,
+           `Number of nurses on the  Evening shift (07:30 to 16:30)`,
+          `Number of nurses on the Afternoon shift (12:30 - 18:30)`,
+            `Number of nurses in the other shift type (mentioned above)`,
+          `Number of nurses on the night shift (18:30 - 07:30 )`,
+         Shift_type2, total_n_hours_day,total_n_hours_night,unstd_n_hours) %>%
+  View()
+
+favstats(NCI$unstd_n_hours~NCI$Site_Code)
+favstats(NCI$unstd_n_hours~NCI$Round)
+```
+
+#summary of shift staffing - table
+```{r include=FALSE}
+No_of_nurses_pershift<-tbl_summary(NCI,
+                                   include=c(`Number of nurses in the Morning shift (07:30 to 12:30)`,
+                                             `Number of nurses on the  Evening shift (07:30 to 16:30)`,
+                                             `Number of nurses on the Afternoon shift (12:30 - 18:30)`,
+                                             `Number of nurses on the night shift (18:30 - 07:30 )`,
+                                             `Number of nurses in the other shift type (mentioned above)`,
+                                             `Number of nursing officer interns on the shifts`),
+                                   type=list(c(`Number of nurses in the Morning shift (07:30 to 12:30)`,
+                                             `Number of nurses on the  Evening shift (07:30 to 16:30)`,
+                                             `Number of nurses on the Afternoon shift (12:30 - 18:30)`,
+                                             `Number of nurses on the night shift (18:30 - 07:30 )`,
+                                             `Number of nurses in the other shift type (mentioned above)`,
+                                             `Number of nursing officer interns on the shifts`)~'continuous'),
+                                   by=Site_Code,
+                                   missing = "no",
+                                   missing_text = NULL,
+                                   digits=all_continuous()~0) %>% 
+                                   modify_header(label="**Nursing staff establishment per shift by hospital*", 
+                                                 update = all_stat_cols()~"{level}<br>N={n}") %>% 
+                                   modify_caption("**Site**")
+
+print(No_of_nurses_pershift)
+
+```
+
+#Standardised 12-hour shifts
+```{r include=FALSE}
+
+#Standardising day & night total nursing hours  to 12-hour shifts across the hospitals 
+NCI<-NCI %>% 
+  mutate(std_n_hours_shift=NA_real_,
+         std_n_hours_shift=if_else(Shift_type2=="Day shift"& Site_Code=="H1",
+                       total_n_hours_day*1.2, std_n_hours_shift),
+        std_n_hours_shift=if_else(Shift_type2!="Day shift"& Site_Code=="H1",
+                       total_n_hours_night*0.86, std_n_hours_shift),
+        std_n_hours_shift=if_else(Shift_type2=="Day shift"& Site_Code=="H2",
+                       total_n_hours_day*1.09, std_n_hours_shift),
+        std_n_hours_shift=if_else(Shift_type2!="Day shift"& Site_Code=="H2",
+                       total_n_hours_night*0.92, std_n_hours_shift),
+        std_n_hours_shift=if_else(Shift_type2=="Day shift"& 
+                                  Site_Code=="H3"& 
+                                  Round=="Round 2",
+                       total_n_hours_day*1.2, std_n_hours_shift),
+        std_n_hours_shift=if_else(Shift_type2=="Day shift"& 
+                                  Site_Code=="H3"&
+                                  (Round=="Baseline"|Round=="Round 3"),
+                       total_n_hours_day*1.09, std_n_hours_shift),
+        std_n_hours_shift=if_else(Shift_type2!="Day shift"& 
+                                  Site_Code=="H3"& 
+                                  Round=="Round 2",
+                       total_n_hours_night*0.86, std_n_hours_shift),
+        std_n_hours_shift=if_else(Shift_type2!="Day shift"& 
+                                  Site_Code=="H3"&
+                                  (Round=="Baseline"|Round=="Round 3"),
+                       total_n_hours_night*0.92, std_n_hours_shift),
+         std_n_hours_shift=if_else(Shift_type2=="Day shift"& Site_Code=="H4",
+                       total_n_hours_day*1.09, std_n_hours_shift),
+        std_n_hours_shift=if_else(Shift_type2!="Day shift"& Site_Code=="H4",
+                       total_n_hours_night*0.92, std_n_hours_shift)
+  ) %>% 
+  as_tibble()
+
+#cross-check
+NCI %>% select(Site_Code,Round,Shift_type2,total_n_hours_day,
+               total_n_hours_night,std_n_hours_shift, unstd_n_hours) %>% 
+View()
+
+boxplot(NCI$std_n_hours_shift)
+hist(NCI$std_n_hours_shift)
+
+library(moments)
+NCI %>% 
+  filter(NCI$std_n_hours_shift>=40) #n=4
+
+```
+#NHPPS from standardised total nursing hours
+```{r}
+library(table1)
+NCI<-NCI %>%
+  rowwise() %>% 
+  mutate(NHPPS=NA_real_,
+         NHPPS=std_n_hours_shift/`Total number of patients on the ward`)%>%
+  mutate(NHPPS_minutes=NHPPS*60) %>% 
+as_tibble()
+
+#Cross check
+NCI %>% select(Site_Code,Round,Shift_type2,total_n_hours_day,
+               total_n_hours_night,std_n_hours_shift,`Participant ID`, NHPPS,NHPPS_minutes) %>% 
+View()
+
+favstats(NCI$std_n_hours_shift~NCI$Site_Code)
+favstats(NCI$std_n_hours_shift~NCI$Phase)
+
+favstats(NCI$NHPPS~NCI$Site_Code)
+favstats(NCI$NHPPS~NCI$Phase)
+
+#NHPPS per Hospital
+cross_check1<-NCI %>% 
+  select(`Date of data collection`, Site_Code, NHPPS)%>% 
+  as_tibble()
+
+favstats(cross_check1$NHPPS~cross_check1$Site_Code)
+
+#No of shifts
+NCI %>% 
+  group_by(Site_Code) %>% 
+  summarise(count=n_distinct(`Date of data collection`)
+  )
+
+hist(NCI$NHPPS_minutes)
+boxplot(NCI$NHPPS_minutes~NCI$Site_Code)
+skewness(NCI$NHPPS_minutes)
+```
+
+#Cross-checking NCI Domains - numerators & denominators
+```{r}
+#customizing table contents using the render function
+render_continuous<-function(x){
+  with(stats.apply.rounding(stats.default(x), digits=2), 
+       c("","Mean (SD)"=sprintf("%s (&plusmn; %s)", MEAN, SD))
+       )
+}
+
+render_categorical <- function(x) {
+    c("", sapply(stats.default(x), function(y) with(y,
+        sprintf("%d (%0.2f%%)", FREQ,PCT))))
+}
+
+#Routine nursing care
+table1(~`Nurses handing over patient`+
+         `Patient assessment before shift`+
+         `Hand washing before patient assessment`+
+         `A nurse attends ward rounds with the doctor (s) to see the patient.`+
+         `Communication to caregiver`+
+         `Routine nursing care score`|Round,
+       data=NCI,
+       caption = "Routine nursing care tasks & domain score",
+       render.continuous=render_continuous, 
+       render.categorical=render_categorical
+       )
+#Vital signs
+table1(~`Temperature check`+
+         `Temp score`+
+         `Pulse or heart rate check`+
+         `Pulse score`+
+         `Respiratory rate check`+
+         `Resp score`+
+         `Pulse oximetry check`+
+         `Pulse score`+
+         `Vital signs score`| Round,
+       data=NCI,
+       caption="Vital signs & domain score",
+       render.continuous=render_continuous, 
+       render.categorical=render_categorical
+       )
+#Routine Newborn Care
+
+table1(~`Cleaning baby (Top-tailing)`+
+         `Linen change`+
+         `Weight check...210`+
+         `Check incubator settings`+
+         `Diaper change`+
+         `Cord care`+
+         `Turning the baby 1`+
+         `Turning the baby 2`+
+         `Turning the baby 3`+
+         `Turning the baby 4`+
+         `Routine newborn care score`| Round,
+       data=NCI,
+       caption="Routine Newborn Care tasks & domain score",
+       render.continuous=render_continuous, 
+       render.categorical=render_categorical
+)
+
+#Feeding
+table1(~`First feed given`+
+         `Second feed given`+
+         `Third feed given`+
+         `Fourth feed given`+
+        `Feeding score` | Round, 
+       data = NCI,
+       caption="Feeding tasks & domain score",
+      render.continuous=render_continuous, 
+      render.categorical=render_categorical
+)
+#IV & Oral medication
+table1(~`Was the 1st IV medication given?`+
+         `Was the 2nd IV medication given?`+
+         `Was the 3rd IV medication given?`+
+         `Was the 4th IV medication given?`+
+       `Was  the 1st oral medication given?`+
+        `Was the 2nd oral medication given?`+
+        `Was  the 3rd oral medication given?`+
+        `IV medication_score`+
+         `Oral Meds_score`+
+        `Medication score`| Round,
+       data = NCI,
+       caption="IV & Oral medication tasks & domain score",
+       render.continuous=render_continuous, 
+      render.categorical=render_categorical
+         )
+#Phototherapy
+table1(~`Phototherapy score` | Round,
+       data=NCI,
+       caption="Phototherapy domain score",render.continuous=render_continuous, 
+      render.categorical=render_categorical
+       )
+#CPAP
+table1(~`CPAP score` | Round,
+       data=NCI,
+       caption="CPAP domain score",
+       render.continuous=render_continuous, 
+      render.categorical=render_categorical
+       )
+#CPAP
+table1(~`Oxygen therapy(non_CPAP) score` | Round,
+       data=NCI,
+       caption="Oxygen therapy domain score",
+       render.continuous=render_continuous, 
+      render.categorical=render_categorical
+       )
+
+```
+#Total NCI Score - Excluding NGT & IV processes, KMC, & Documentation
+#NCI Score numerator & denominator
+```{r include=FALSE}
+#NCI Score numerator
+  #Documentation, NGT & IV meds processes are removed from the score
+NCI<-NCI %>% 
+  rowwise() %>%
+  mutate(NCI_score_numerator=sum(c(`Routine_Nursing_Care_Numerator`,
+                                 `Temp_Numerator`,
+                                 `Pulse_Numerator`,
+                                 `Resp rate_Numerator`,
+                                 `Pulse oximetry_Numerator`,
+                                 `Routine newborn care_Numerator`,
+                                 `Feeding_Numerator`,
+                                 `IV medication_Numerator`,
+                                 `Oral Meds_Numerator`,
+                                 `Phototherapy_Numerator`,
+                                 `CPAP_Numerator`,
+                                 `Oxygen_non_cpap_Numerator`), na.rm=T)
+    
+  )%>% 
+  as_tibble()
+
+#NCI Score Denominator
+  #Documentation, NGT & IV meds processes are removed from the score
+NCI<-NCI%>% 
+  rowwise() %>% 
+  mutate(NCI_score_denominator=sum(c(`Routine Nursing Care_Denominator`,
+                                     `Temp_Denominator`,
+                                     `Pulse_Denominator`,
+                                     `Resp rate_Denominator`,
+                                     `Pulse oximetry_Denominator`,
+                                     `Routine newborn care_Denominator`,
+                                     `Feeding_Denominator`,
+                                     `IV medication_Denominator`,
+                                     `Oral Meds_Denominator`,
+                                     `Phototherapy_Denominator`,
+                                     `CPAP_Denominator`,
+                                     `Oxygen_non_cpap_Denominator`), na.rm=T)
+  ) %>% 
+  as_tibble()
+
+
+#Computing Total NCI Score 
+NCI<-NCI %>%
+  rowwise() %>% 
+  mutate('Total NCI Score (%)'=NA_real_,
+         'Total NCI Score (%)'=NCI_score_numerator/NCI_score_denominator*100
+  ) %>% 
+  as_tibble()
+
+favstats(NCI$`Total NCI Score (%)`~NCI$Site_Code)
+favstats(NCI$`Total NCI Score (%)`~NCI$Phase)
+
+NCI$`Total NCI Score(all)`*100
+```
+#NCI Composite Score
+```{r}
+NCI<-NCI %>% 
+  rowwise() %>% 
+  mutate('NCI Composite Score'<-NA_real_,
+         'NCI Composite Score'=mean(c(`Routine newborn care score`,
+                                    `Vital signs score`,
+                                    `Routine newborn care score`,
+                                    `Feeding score`,
+                                    `Medication score`,
+                                    `KMC score`,
+                                    `Phototherapy score`,
+                                    `CPAP score`,
+                                    `Oxygen therapy(non_CPAP) score`),
+                                    na.rm=T)
+         )
+
+favstats(`NCI Composite Score`~Phase, data = NCI)
+
+```
+#Care delivered by anyone from the NCI
+```{r}
+all_NCI_score<-NCI %>% 
+  rowwise() %>% 
+  group_by(Phase,Site_Code) %>% 
+  summarise(all_NCI_score=median(`Total NCI Score (%)`)
+            )
+
+ggplot(data=NCI)+
+  geom_boxplot(aes(x=Site_Code,
+                   y=`Total NCI Score (%)`,
+                   fill=Phase)
+               )+
+  geom_text(data=all_NCI_score,
+            aes(x=Site_Code, y=all_NCI_score,
+            label=sprintf(fmt="%.0f",all_NCI_score)),
+            position = position_dodge2(width = 0.8),
+            size=2.3, vjust=-0.7, col='white')+
+  labs(title="Total care delivered",
+       x="Hospital", 
+       y="NCI Score (%)")+
+  scale_fill_discrete(name=' ',
+                      labels=c("Baseline" = "Pre-intervention",
+                                 "Round 2" = "Extra nurses",
+                                 "Round 3" = "Ward assistant"))+
+   scale_y_continuous(breaks = c(0,10,20,30,40,50,60,70,80,90))+
+    theme_stata()+
+    theme(plot.title = element_text(hjust = 0.5), 
+          legend.background = element_blank(),
+          legend.position = c(0.94,0.1)
+           )
+
+#NCI[order(NCI$`Participant ID`, decreasing = F, na.last = T), ]
+```
+#Nurse-delivered care from the NCI
+```{r}
+#At Baseline: 1. Phototherapy; 2. Oxygen; 	3. CPAP; 4. IV Meds; 5.KMC to be omitted from calculation of nurse-delivered care since they did not have who provided care 
+NCI <-NCI %>% 
+  rowwise() %>% 
+  mutate("Nurse-delivered care"=mean(c(`Routine nursing care score`, 
+                                      `Vital Signs by Nurse(%)`,
+                                      `Newborn Care by Nurse(%)`,
+                                      `Feeding by Nurse(%)`, 
+                                      `IV Medication by Nurse(%)`,
+                                      `Oral medication by Nurse(%)`,
+                                      `Phototherapy care by Nurse(%)`,
+                                      `CPAP Care by Nurse(%)`,
+                                      `Oxygen therapy by Nurse(%)`), na.rm=T)
+          ) %>% 
+  as_tibble()
+#Feeding & IV medication excludes the feeding processes; Documentation is removed from the nurse-delivered care
+
+NCI %>% select(`Total NCI Score (%)`, 'Nurse-delivered care') %>% View()
+
+favstats(NCI$`Total NCI Score (%)`~NCI$Phase)
+
+
+favstats(NCI$`Nurse-delivered care`~NCI$Phase)
+favstats(NCI$`Nurse-delivered care`~NCI$`Shift type`)
+
+table1(~`Total NCI Score (%)`|Phase, data=NCI)
+table1(~`Nurse-delivered care`|Phase, data=NCI)
+```
+#Plot - Nurse-delivered care by phase & hospital
+```{r}
+#Median-Proportion of nurse-delivered care
+nurse_NCI_score<-NCI %>%
+  rowwise() %>% 
+  group_by(Phase,Site_Code) %>% 
+  summarise(nurse_NCI_score=median(`Nurse-delivered care`)
+            )
+
+#Boxplot nurse-delivered care only
+ggplot(data=NCI)+
+  geom_boxplot(aes(x=Site_Code,y=`Nurse-delivered care`,
+                   fill=Round))+
+  geom_text(data=nurse_NCI_score, 
+            aes(Site_Code, y=nurse_NCI_score,
+            label=sprintf(fmt="%.0f", nurse_NCI_score)), 
+            position=position_dodge2(width=0.8),
+            size=2.4, vjust=-0.5, col='navy', hjust=0.9)+
+  labs(title = "Proportion of Nurse-delivered care",
+        x="Hospital", 
+        y="NCI Score (%)")+
+  scale_y_continuous(breaks = c(0,10,20,30,40,50,60,70,80,90))+
+  scale_fill_discrete(name="Phase",
+                      labels=c("Baseline" = "Pre-intervention",
+                                 "Round 2" = "Extra nurses",
+                                 "Round 3" = "Ward assistant")
+                      )+
+   theme_light()+
+     theme(plot.title = element_text(hjust = 0.5)
+           )
+```
+#Subsetting NCI Into phases
+```{r}
+R1_NCI<-subset(NCI,Round=="Baseline")
+R2_NCI<-subset(NCI,Round=="Round 2")
+R3_NCI<-subset(NCI,Round=="Round 3")
+R2_R3_NCI<-subset(NCI, Round=="Round 2" | Round=="Round 3")
+
+#No of shifts per hosp
+R2_R3_NCI %>% 
+  group_by(Site_Code) %>% 
+  summarise(count=n_distinct(`Date of data collection`)
+  )
+```
+#Subsetting NCI Into Hospitals
+```{r}
+H1<-subset(NCI,Site_Code=="H1")
+H2<-subset(NCI,Site_Code=="H2")
+H3<-subset(NCI,Site_Code=="H3")
+H4<-subset(NCI,Site_Code=="H4")
+```
+#Comparing total versus nurse-delivered care
+```{r}
+#melting total care & nurse-delivered care
+#Reshape-long
+library(reshape2)
+Care_delivered2<-melt(R2_R3_NCI,
+       id.vars = c("Participant ID","Site_Code", "Round", "Phase", "NHPPS"),
+       measure.vars = c("Total NCI Score (%)","Nurse-delivered care"),
+       variable.name="care delivery",
+       value.name="Amount of care delivered")
+#View(Care_delivered2)
+
+Care_delivered2$`care delivery`<-factor(Care_delivered2$`care delivery`,
+                                       levels = c("Total NCI Score (%)","Nurse-delivered care"),
+                                       labels = c("Care delivered by anyone","Nurse-delivered care")
+                                       )
+```
+#Overall change in nurse-delivered care~Total NCI Score
+```{r}
+all_NCI_score<-R2_R3_NCI %>% 
+  group_by(Round, Site_Code) %>% 
+  summarise(all_NCI_score=median(`Total NCI Score (%)`)
+            )
+nurse_NCI_score<-R2_R3_NCI %>% 
+  group_by(Round, Site_Code) %>% 
+  summarise(nurse_NCI_score=median(`Nurse-delivered care`, na.rm=T)
+            )
+
+all_NCI_scorex<-R2_R3_NCI %>% 
+  group_by(Site_Code) %>% 
+  summarise(all_NCI_scorex=median(`Total NCI Score (%)`)
+            )
+nurse_NCI_scorex<-R2_R3_NCI %>% 
+  group_by(Site_Code) %>% 
+  summarise(nurse_NCI_scorex=median(`Nurse-delivered care`, na.rm=T)
+            ) 
+nurse_NCI_scorex$nurse_NCI_scorex<-as.numeric(nurse_NCI_scorex$nurse_NCI_scorex)
+
+
+#Median-nurse-delivered care -> nurse_NCI_score
+#Median-anyone-delivered care -> all_NCI_score
+
+plot1<-ggplot(data=Care_delivered2)+
+  geom_boxplot(aes(x=Round,y=`Amount of care delivered`,
+                   fill=`care delivery`))+
+  labs(title="Changes in care delivered",
+       x="Hospital", ylab="NCI Score (%)")+
+      #geom_text(data=all_NCI_score,
+            #aes(x=Site_Code, y=all_NCI_scorex,
+                #label=sprintf(fmt="%.0f", all_NCI_scorex)),
+                #size=2, hjust=0.8, vjust=-0.6,nudge_x =-0.2, colour="blue")+
+  #geom_text(data=nurse_NCI_score,
+          #aes(x=Site_Code, y=nurse_NCI_scorex,
+                #label=sprintf(fmt="%s", nurse_NCI_scorex)),
+                #size=2, hjust=0.2,vjust=-0.6,nudge_x =0.2, colour="navy")+
+   facet_wrap(~Site_Code)+
+  scale_y_continuous(breaks = c(0,10,20,30,40,50,60,70,80,90,100))+
+  scale_x_discrete(name="Hospital",
+                   labels=c('Round 2'='Pre WA intervention',
+                            'Round 3'='Post WA intervention')
+                   )+
+  scale_fill_discrete(name=" ",
+                      labels=c("Care delivered by anyone", 
+                               "Nurse-delivered care")
+                      )+
+    theme_bw(base_size = 12)+
+  theme(plot.title = element_text(hjust = 0.5),
+        rect = element_rect(fill = 'transparent'),
+        legend.key = element_rect(fill = 'transparent', color = NULL),
+        legend.position = c(0.87,1.08),
+        legend.direction = "horizontal",
+        legend.background = element_rect(fill = NULL,colour=0,
+                                        linewidth = 0),
+        legend.box.background = element_rect(fill = NULL, colour = 0, 
+                                             linewidth = 0),
+                legend.text = element_text(size = 7)
+        ) 
+print(plot1)
+ggsave(plot1, filename="Boxplot changes in care delivery.png", dpi = 300, 
+       width = 300, height = 155, units = 'mm')
+
+## Collapsed data## Collapsed NULLdata
+all_NCI_score2<-R2_R3_NCI %>% 
+  group_by(Phase) %>% 
+  summarise(all_NCI_score2=median(`Total NCI Score (%)`)
+            )
+nurse_NCI_score2<-R2_R3_NCI %>% 
+  group_by(Phase) %>% 
+  summarise(nurse_NCI_score2=median(`Nurse-delivered care`, na.rm=T)
+            )
+
+ggplot(data=Care_delivered2)+
+  geom_boxplot(aes(x=Phase,y=`Amount of care delivered`, fill=`care delivery`))+
+  labs(title="Overall change in care delivered",
+       x="Phase", 
+       y="Total NCI Score (%)")+
+    geom_text(data = all_NCI_score2,
+            aes(x=Phase, y=all_NCI_score2,
+                label= sprintf(fmt="%.0f",all_NCI_score2)),
+            size=2.4, hjust=9.6,vjust=-0.6, col="blue")+
+      geom_text(data = nurse_NCI_score2,
+            aes(x=Phase, y=nurse_NCI_score2,
+                label= sprintf(fmt="%.0f",nurse_NCI_score2)),
+            size=2.4, hjust=-8.6,vjust=-0.6, col="blue")+
+  scale_y_continuous(breaks = c(0,5,10,15,20,25,30,35,40,45,50,55,
+                                60,65,70,75,80,85,90,95,100))+
+  scale_x_discrete(labels=c("Extra Nurse"="Pre WA intervention",
+                   "Nurses+Ward Assistants"="Post intervention"))+
+  scale_fill_discrete(name=" ",
+                      labels=c("Total care delivered",
+                               "Nurse-delivered care")
+                      )+
+  theme_clean()+
+  theme(plot.title = element_text(hjust = 0.5), 
+          legend.background = element_blank(),,
+          legend.position = c(0.93,1.02),
+        legend.text = element_text(size=7)
+           )
+
+
+
+table1(~`Nurse-delivered care` +`Total NCI Score(all)`+ `Total NCI Score (%)`| Round,
+       data=R2_R3_NCI)
+```
+#Corr between staffing and nurse-delivered care 
+```{r}
+cor.test(NCI$std_n_hours_shift,NCI$`Nurse-delivered care`) #r=0.22; does not account for patient numbers on the shift
+cor.test(NCI$NHPPS,NCI$`Nurse-delivered care`) #r=0.059; accounts for patient volumes
+
+cor.test(NCI$NHPPS_minutes,NCI$`Total NCI Score (%)`) #r=0.29; 
+
+ggplot(data=Care_delivered2)+
+  geom_point(aes(x=NHPPS,y=`Amount of care delivered`,  
+                  color=`care delivery`),na.rm = T)+
+  facet_grid(~Phase)+
+  labs(title="Relationship between Nursing hours per-patient per 12-hour shift (NHPPS) and care delivery",
+       x="NHPPS (hours)", 
+       y="Amount of care delivered (%)")+
+  scale_y_continuous(breaks = c(0,10,20,30,40,50,60,70,80,90,100)
+                     )+
+  theme_bw()+
+  theme(plot.title = element_text(hjust = 0),
+        legend.position = c(0.86, 1.08), legend.direction = "horizontal",
+        legend.background = element_rect(fill = NULL,
+                                         color = NULL),
+        legend.box.background = element_rect(fill = NULL,color = NULL)
+        )+
+  scale_color_discrete(name="")
+```
+
+#Summary NCI Domain Scores by phase
+```{r include=FALSE}
+NCI_score_by_phase<-tbl_summary(NCI,
+                                        include = c(`Routine nursing care score`, 
+                                                     `Vital signs score`,          
+                                                    `Routine newborn care score`,
+                                                    `Feeding score`,
+                                                    `Medication score`,
+                                                    `Phototherapy score`,
+                                                    `CPAP score`,
+                                                    `Oxygen therapy(non_CPAP) score`,
+                                                    `KMC score`,
+                                                    `Total NCI Score (%)`),
+                                        by=Phase,
+                                        type = list(c(`Routine nursing care score`, 
+                                                     `Vital signs score`,          
+                                                    `Routine newborn care score`,
+                                                    `Feeding score`,
+                                                    `Medication score`,
+                                                    `Phototherapy score`,
+                                                    `CPAP score`,
+                                                    `Oxygen therapy(non_CPAP) score`,
+                                                    `KMC score`,
+                                                    `Total NCI Score (%)`) ~ 'continuous'),
+                                        missing = "no",
+                                        missing_text = NULL,
+                                        statistic = all_continuous()~"{mean}({sd})")%>% 
+  add_overall(last=T) %>%
+                                         bold_labels()%>%
+                                         modify_header(label="*NCI Domains*", 
+                                                       update = all_stat_cols()~"**{level}**<br>N ={n}")%>%
+                                         modify_caption("**% Perfromance by Phase**") 
+print(NCI_score_by_phase)
+
+#Summary using table1
+summary1<-table1(~`Routine nursing care score`+
+                 `Vital signs score`+
+                 `Routine newborn care score`+
+                  `Feeding score`+
+                 `Medication score`+
+                 `Phototherapy score`+
+                 `CPAP score`+
+                 `Oxygen therapy(non_CPAP) score`+
+                 `KMC score`+
+                 `Total NCI Score (%)` | Phase, data = NCI,                            caption="Summary of NCI by phase",
+                 footnote='footnote')
+print(summary1)
+```
+#Summary NCI Domain scores by hospital
+```{r echo=TRUE}
+#Pre-intervention
+NCI_Scores_by_hospital_r1<-tbl_summary(R1_NCI,
+                              include = c(`Routine nursing care score`, 
+                                                     `Vital signs score`,          
+                                                    `Routine newborn care score`,
+                                                    `Feeding score`,
+                                                    `Medication score`,
+                                                    `Phototherapy score`,
+                                                    `CPAP score`,
+                                                    `Oxygen therapy(non_CPAP) score`,
+                                                    `KMC score`,
+                                                    `Total NCI Score (%)`),
+                              by=`Site_Code`,
+                              type = list(c(`Routine nursing care score`, 
+                                                     `Vital signs score`,          
+                                                    `Routine newborn care score`,
+                                                    `Feeding score`,
+                                                    `Medication score`,
+                                                    `Phototherapy score`,
+                                                    `CPAP score`,
+                                                    `Oxygen therapy(non_CPAP) score`,
+                                                    `KMC score`,
+                                                    `Total NCI Score (%)`) ~ 'continuous'),
+                              missing = "no",
+                              missing_text = NULL,
+                              statistic=all_continuous()~"{mean} ({sd})")%>%
+      add_overall(last=T) %>% 
+     bold_labels()%>% 
+     modify_header(label="*NCI Domains*", 
+                   update = all_stat_cols()~"**{level}**<br>N ={n}")%>%
+     #modify_footnote(all_stat_cols()~"Mean(SD) scores as **%** proportion, N = No of patients") %>% 
+     modify_caption("Baseline NCI Scores") %>% 
+     modify_spanning_header(c("stat_1", "stat_2", "stat_3", "stat_4")~"Hospital (pre-intervention score)") 
+print(NCI_Scores_by_hospital_r1)
+
+#Extra nurses
+
+NCI_Scores_by_hospital_r2<-tbl_summary(R2_NCI,
+                              include = c(`Routine nursing care score`, 
+                                                     `Vital signs score`,          
+                                                    `Routine newborn care score`,
+                                                    `Feeding score`,
+                                                    `Medication score`,
+                                                    `Phototherapy score`,
+                                                    `CPAP score`,
+                                                    `Oxygen therapy(non_CPAP) score`,
+                                                    `KMC score`,
+                                                    `Total NCI Score (%)`),
+                              by=`Site_Code`,
+                              type = list(c(`Routine nursing care score`, 
+                                                     `Vital signs score`,          
+                                                    `Routine newborn care score`,
+                                                    `Feeding score`,
+                                                    `Medication score`,
+                                                    `Phototherapy score`,
+                                                    `CPAP score`,
+                                                    `Oxygen therapy(non_CPAP) score`,
+                                                    `KMC score`,
+                                                    `Total NCI Score (%)`) ~ 'continuous'),
+                              missing = "no",
+                              missing_text = NULL,
+                              statistic=all_continuous()~"{mean} ({sd})")%>%
+      add_overall(last=T) %>% 
+     bold_labels()%>% 
+     modify_header(label="*NCI Domains*", 
+                   update = all_stat_cols()~"**{level}**<br>N ={n}")%>%
+     #modify_footnote(all_stat_cols()~"Mean(SD) scores as **%** proportion, N = No of patients") %>% 
+     modify_caption("After Extra Nurses NCI Scores") %>% 
+     modify_spanning_header(c("stat_1", "stat_2", "stat_3", "stat_4")~"Hospital (round 2 scores)") 
+print(NCI_Scores_by_hospital_r2)
+
+#Ward assistants
+NCI_Scores_by_hospital_r3<-tbl_summary(R3_NCI,
+                              include = c(`Routine nursing care score`, 
+                                                     `Vital signs score`,          
+                                                    `Routine newborn care score`,
+                                                    `Feeding score`,
+                                                    `Medication score`,
+                                                    `Phototherapy score`,
+                                                    `CPAP score`,
+                                                    `Oxygen therapy(non_CPAP) score`,
+                                                    `KMC score`,
+                                                    `Total NCI Score (%)`),
+                              by=`Site_Code`,
+                              type = list(c(`Routine nursing care score`, 
+                                                     `Vital signs score`,          
+                                                    `Routine newborn care score`,
+                                                    `Feeding score`,
+                                                    `Medication score`,
+                                                    `Phototherapy score`,
+                                                    `CPAP score`,
+                                                    `Oxygen therapy(non_CPAP) score`,
+                                                    `KMC score`,
+                                                    `Total NCI Score (%)`) ~ 'continuous'),
+                              missing = "no",
+                              missing_text = NULL,
+                              statistic=all_continuous()~"{mean} ({sd})")%>%
+      add_overall(last=T) %>% 
+     bold_labels()%>% 
+     modify_header(label="*NCI Domains*", 
+                   update = all_stat_cols()~"**{level}**<br>N ={n}")%>%
+     #modify_footnote(all_stat_cols()~"Mean(SD) scores as **%** proportion, N = No of patients") %>% 
+     modify_caption("After Ward assistants NCI Scores") %>% 
+     modify_spanning_header(c("stat_1", "stat_2", "stat_3", "stat_4")~"Hospital (round 3 scores)") 
+print(NCI_Scores_by_hospital_r3)
+
+
+```
+#NCI Domain Scores by patient category
+```{r}
+
+NCI_score_by_cat<-tbl_summary(NCI,
+                                        include = c(`Routine nursing care score`, 
+                                                     `Vital signs score`,          
+                                                    `Routine newborn care score`,
+                                                    `Feeding score`,
+                                                    `Medication score`,
+                                                    `Phototherapy score`,
+                                                    `CPAP score`,
+                                                    `Oxygen therapy(non_CPAP) score`,
+                                                    `KMC score`,
+                                                    `Total NCI Score (%)`),
+                                        by=`Patient Care category`,
+                                        type = list(c(`Routine nursing care score`, 
+                                                     `Vital signs score`,          
+                                                    `Routine newborn care score`,
+                                                    `Feeding score`,
+                                                    `Medication score`,
+                                                    `Phototherapy score`,
+                                                    `CPAP score`,
+                                                    `Oxygen therapy(non_CPAP) score`,
+                                                    `KMC score`,
+                                                    `Total NCI Score (%)`) ~ 'continuous'),
+                                        missing = "no",
+                                        missing_text = NULL)%>% add_overall(last=T) %>% 
+                                        add_p() %>% 
+                                        bold_labels()%>%
+                                         modify_header(label="*NCI Domains*", 
+                                                       update = all_stat_cols()~"**{level}**<br>N ={n}")%>%
+                                         modify_caption("**% Perfromance by Patient Acuity**") 
+print(NCI_score_by_cat)
+```
+#NGT & IV Med Processes By Hospital
+```{r}
+process_scores_site<-tbl_summary(NCI,
+                               include = c(`NGT feeding process score`,
+                                         `iv meds process_score`),
+                                        by=Site_Code,
+                                        type = list(c(`NGT feeding process score`,
+                                         `iv meds process_score`)~ 'continuous'),
+                                        missing = "no",
+                                        missing_text = NULL)%>%
+     bold_labels()%>% 
+     add_overall(last=T) %>% add_p() %>% 
+     modify_header(label="*Process*",update = all_stat_cols()~"**{level}**<br>N ={n}") %>% 
+     modify_caption("NCI Process Scores") %>% 
+     modify_spanning_header(c("stat_1", "stat_2", "stat_3", "stat_4")~"Hospital") 
+print(process_scores_site)
+```
+#NGT Feeding Process
+```{r}
+#H1 Summary stats -NGT feeding process
+H1_NGT_process<-tbl_summary(H1,
+                            include = c(`Check tube positioning (1st)`,
+                            `Check tube positioning (2nd)`,
+                            `Check tube positioning (3rd)`,
+                            `Check tube positioning (4th)`,
+                            `measure feeds (1st)`,
+                            `measure feeds (2nd)`,
+                            `measure feeds (3rd)`,
+                            `measure feeds (4th)`,
+                            `Baby positioned after first NGTube feed`,
+                            `Baby positioned after 2nd NGTube feed`,
+                            `Baby positioned after 3rd NGTube feed`,
+                            `Baby positioned after 4th NGTube feed`),
+                                          type = list(c(`Check tube positioning (1st)`,
+                            `Check tube positioning (2nd)`,
+                            `Check tube positioning (3rd)`,
+                            `Check tube positioning (4th)`,
+                            `measure feeds (1st)`,
+                            `measure feeds (2nd)`,
+                            `measure feeds (3rd)`,
+                            `measure feeds (4th)`,
+                            `Baby positioned after first NGTube feed`,
+                            `Baby positioned after 2nd NGTube feed`,
+                            `Baby positioned after 3rd NGTube feed`,
+                            `Baby positioned after 4th NGTube feed`)~'categorical'),
+                                          by = `Phase`,
+                                          missing = 'no',
+                                          missing_text = NULL,
+                                          digits = all_continuous()~0)%>% 
+     add_overall(last=TRUE) %>% add_n(last=T) %>% add_p(test=everything()~"chisq.test") %>% 
+     modify_header(label="*H1 NGT feeding processes*", update=all_stat_cols()~"**{level}**<br>N={n}")%>%
+     modify_spanning_header(c('stat_1','stat_2','stat_3')~"Phase") %>% bold_labels() 
+print(H1_NGT_process)
+
+#H2 Summary stats -NGT feeding process
+H2_NGT_process<-tbl_summary(H2,
+                            include = c(`Check tube positioning (1st)`,
+                            `Check tube positioning (2nd)`,
+                            `Check tube positioning (3rd)`,
+                            `Check tube positioning (4th)`,
+                            `measure feeds (1st)`,
+                            `measure feeds (2nd)`,
+                            `measure feeds (3rd)`,
+                            `measure feeds (4th)`,
+                            `Baby positioned after first NGTube feed`,
+                            `Baby positioned after 2nd NGTube feed`,
+                            `Baby positioned after 3rd NGTube feed`,
+                            `Baby positioned after 4th NGTube feed`),
+                                          type = list(c(`Check tube positioning (1st)`,
+                            `Check tube positioning (2nd)`,
+                            `Check tube positioning (3rd)`,
+                            `Check tube positioning (4th)`,
+                            `measure feeds (1st)`,
+                            `measure feeds (2nd)`,
+                            `measure feeds (3rd)`,
+                            `measure feeds (4th)`,
+                            `Baby positioned after first NGTube feed`,
+                            `Baby positioned after 2nd NGTube feed`,
+                            `Baby positioned after 3rd NGTube feed`,
+                            `Baby positioned after 4th NGTube feed`,)~'categorical'),
+                                          by = `Phase`,
+                                          missing = 'no',
+                                          missing_text = NULL,
+                                          digits = all_continuous()~0)%>% 
+     add_overall(last=TRUE) %>% add_n(last=T) %>% add_p(test=everything()~"chisq.test") %>% 
+     modify_header(label="*H2 NGT feeding processes*", update=all_stat_cols()~"**{level}**<br>N={n}")%>%
+     modify_spanning_header(c('stat_1','stat_2','stat_3')~"Phase") %>% bold_labels() 
+print(H2_NGT_process)
+
+#H3 Summary stats -NGT feeding process
+H3_NGT_process<-tbl_summary(H3,
+                            include = c(`Check tube positioning (1st)`,
+                            `Check tube positioning (2nd)`,
+                            `Check tube positioning (3rd)`,
+                            `Check tube positioning (4th)`,
+                            `measure feeds (1st)`,
+                            `measure feeds (2nd)`,
+                            `measure feeds (3rd)`,
+                            `measure feeds (4th)`,
+                            `Baby positioned after first NGTube feed`,
+                            `Baby positioned after 2nd NGTube feed`,
+                            `Baby positioned after 3rd NGTube feed`,
+                            `Baby positioned after 4th NGTube feed`),
+                                          type = list(c(`Check tube positioning (1st)`,
+                            `Check tube positioning (2nd)`,
+                            `Check tube positioning (3rd)`,
+                            `Check tube positioning (4th)`,
+                            `measure feeds (1st)`,
+                            `measure feeds (2nd)`,
+                            `measure feeds (3rd)`,
+                            `measure feeds (4th)`,
+                            `Baby positioned after first NGTube feed`,
+                            `Baby positioned after 2nd NGTube feed`,
+                            `Baby positioned after 3rd NGTube feed`,
+                            `Baby positioned after 4th NGTube feed`,)~'categorical'),
+                                          by = `Phase`,
+                                          missing = 'no',
+                                          missing_text = NULL,
+                                          digits = all_continuous()~0)%>% 
+     add_overall(last=TRUE) %>% add_n(last=T) %>% add_p(test=everything()~"chisq.test") %>% 
+     modify_header(label="*H3 NGT feeding processes*", update=all_stat_cols()~"**{level}**<br>N={n}")%>%
+     modify_spanning_header(c('stat_1','stat_2','stat_3')~"Phase") %>% bold_labels() 
+print(H3_NGT_process)
+
+H4_NGT_process<-tbl_summary(H4,
+                            include = c(`Check tube positioning (1st)`,
+                            `Check tube positioning (2nd)`,
+                            `Check tube positioning (3rd)`,
+                            `Check tube positioning (4th)`,
+                            `measure feeds (1st)`,
+                            `measure feeds (2nd)`,
+                            `measure feeds (3rd)`,
+                            `measure feeds (4th)`,
+                            `Baby positioned after first NGTube feed`,
+                            `Baby positioned after 2nd NGTube feed`,
+                            `Baby positioned after 3rd NGTube feed`,
+                            `Baby positioned after 4th NGTube feed`),
+                                          type = list(c(`Check tube positioning (1st)`,
+                            `Check tube positioning (2nd)`,
+                            `Check tube positioning (3rd)`,
+                            `Check tube positioning (4th)`,
+                            `measure feeds (1st)`,
+                            `measure feeds (2nd)`,
+                            `measure feeds (3rd)`,
+                            `measure feeds (4th)`,
+                            `Baby positioned after first NGTube feed`,
+                            `Baby positioned after 2nd NGTube feed`,
+                            `Baby positioned after 3rd NGTube feed`,
+                            `Baby positioned after 4th NGTube feed`,)~'categorical'),
+                                          by = `Phase`,
+                                          missing = 'no',
+                                          missing_text = NULL,
+                                          digits = all_continuous()~0)%>% 
+     add_overall(last=TRUE) %>% add_n(last=T) %>% add_p(test=everything()~"chisq.test") %>% 
+     modify_header(label="*H4 NGT feeding processes*", update=all_stat_cols()~"**{level}**<br>N={n}")%>%
+     modify_spanning_header(c('stat_1','stat_2','stat_3')~"Phase") %>% bold_labels() 
+print(H4_NGT_process)
+
+table(NCI$Phase,NCI$`Routine nursing care score`)
+
+R1_R2<-subset(NCI, Round =="Baseline" | Round =="Round 2")
+
+summary(~R1_R2$`Hand washing before patient assessment`)
+
+
+```
+#Utilisation of tech per hospital by phase
+```{r echo=TRUE}
+#Utilisation of tech per hospital by phase
+library(gtsummary)
+#H1
+H1_tech_utilisation<-tbl_summary(H1, 
+                                    include = c(`Total number of patients on the ward`,
+                                                `Number of babies on Nasogastric/ Orogastric feeding`,
+                                                `Number of babies on Oxygen`,
+                                                `Number of babies on incubator care`,
+                                                `Number of babies on phototherapy`,
+                                                `Number of babies on CPAP`),
+                                    type = list(c(`Total number of patients on the ward`,
+                                                  `Number of babies on Nasogastric/ Orogastric feeding`,
+                                                  `Number of babies on Oxygen`,
+                                                  `Number of babies on incubator care`,
+                                                  `Number of babies on phototherapy`,
+                                                  `Number of babies on CPAP`) ~ 'continuous'),
+                                 by=Phase,
+                                    digits = all_continuous()~0)%>%
+     add_overall(last=T) %>% 
+     modify_header(label="*Shift statistics*", update=all_stat_cols()~"**{level}**<br>N={n}")%>%
+     modify_caption("*H1-Utilisation of newborn technology*")%>%bold_labels() %>% 
+     modify_spanning_header(c("stat_1","stat_2", "stat_3")~"Phase")
+print(H1_tech_utilisation)
+#H2
+H2_tech_utilisation<-tbl_summary(H2, 
+                                 include = c(`Total number of patients on the ward`,
+                                             `Number of babies on Nasogastric/ Orogastric feeding`,
+                                             `Number of babies on Oxygen`,
+                                             `Number of babies on incubator care`,
+                                             `Number of babies on phototherapy`,
+                                             `Number of babies on CPAP`),
+                                 type = list(c(`Total number of patients on the ward`,
+                                               `Number of babies on Nasogastric/ Orogastric feeding`,
+                                               `Number of babies on Oxygen`,
+                                               `Number of babies on incubator care`,
+                                               `Number of babies on phototherapy`,
+                                               `Number of babies on CPAP`) ~ 'continuous'),
+                                 by = `Phase`,
+                                 digits = all_continuous()~0)%>%
+     add_overall(last=T) %>%
+     modify_header(label="*Shift statistics*", update=all_stat_cols()~"**{level}**<br>N={n}")%>%
+     modify_spanning_header(c('stat_1','stat_2','stat_3')~"Phase") %>% 
+     modify_caption("**H2-Utilisation of newborn technology**")%>%bold_labels()
+print(H2_tech_utilisation)
+#H3
+H3_tech_utilisation<-tbl_summary(H3, 
+                                 include = c(`Total number of patients on the ward`,
+                                             `Number of babies on Nasogastric/ Orogastric feeding`,
+                                             `Number of babies on Oxygen`,
+                                             `Number of babies on incubator care`,
+                                             `Number of babies on phototherapy`,
+                                             `Number of babies on CPAP`),
+                                 type = list(c(`Total number of patients on the ward`,
+                                               `Number of babies on Nasogastric/ Orogastric feeding`,
+                                               `Number of babies on Oxygen`,
+                                               `Number of babies on incubator care`,
+                                               `Number of babies on phototherapy`,
+                                               `Number of babies on CPAP`) ~ 'continuous'),
+                                 by = Phase,
+                                 digits = all_continuous()~0)%>% add_overall(last=T) %>% 
+     modify_header(label="*Shift statistics*", update=all_stat_cols()~"**{level}**<br>N={n}")%>%
+     modify_spanning_header(c('stat_1','stat_2','stat_3')~"Phase") %>% 
+     modify_caption("**H3-Utilisation of newborn technology**")%>%bold_labels()
+print(H3_tech_utilisation)
+
+#H4
+H4_tech_utilisation<-tbl_summary(H4, 
+                                 include = c(`Total number of patients on the ward`,
+                                             `Number of babies on Nasogastric/ Orogastric feeding`,
+                                             `Number of babies on Oxygen`,
+                                             `Number of babies on incubator care`,
+                                             `Number of babies on phototherapy`,
+                                             `Number of babies on CPAP`),
+                                 type = list(c(`Total number of patients on the ward`,
+                                               `Number of babies on Nasogastric/ Orogastric feeding`,
+                                               `Number of babies on Oxygen`,
+                                               `Number of babies on incubator care`,
+                                               `Number of babies on phototherapy`,
+                                               `Number of babies on CPAP`) ~ 'continuous'),
+                                 by = `Phase`,
+                                 digits = all_continuous()~0)%>%
+          add_overall(last=T) %>% 
+          modify_header(label="*Shift statistics*", update=all_stat_cols()~"**{level}**<br>N={n}")%>%
+     modify_spanning_header(c('stat_1','stat_2','stat_3')~"Phase") %>% 
+          modify_caption("**H4 Utilisation of newborn technology**")%>%bold_labels()
+print(H4_tech_utilisation)
+
+```
+
+#Who provides Routine Newborn Care 
+```{r}
+routine_newborn_care<-NCI %>%
+  rowwise() %>%
+  summarise(routine_newborn_care=mean(`Newborn Care by Mother(%)`,
+                                     `Newborn Care by Nurse(%)`,
+                                     `Newborn Care by Student_Nurse(%)`,
+                                     `Newborn Care by Ward_Asssistant(%)`,
+                                     `Newborn Care by other hcw(%)`)
+            )
+#Reshaping long
+library(reshape2)
+routine_newborn_care_delivery<-melt(NCI, 
+                                    id.vars =c("Participant ID",
+                                               "Site_Code",
+                                               "Phase", "Round"),
+                                    measure.vars=c('Newborn Care by Mother(%)',
+                                     'Newborn Care by Nurse(%)',
+                                     'Newborn Care by Student_Nurse(%)',
+                                     'Newborn Care by Ward_Asssistant(%)',
+                                     'Newborn Care by other hcw(%)'),
+        variable.name ="Who delivers care", 
+        value.name=c("Proportion of care delivered"))
+
+View(routine_newborn_care_delivery)
+
+ggplot(data=routine_newborn_care_delivery,
+       aes(x=`Proportion of care delivered`, fill=`Who delivers care`))+
+  geom_dotplot(na.rm = T, dotsize = 0.8)+facet_wrap(~Site_Code)
+  #coord_flip(expand = T)
+  
+#R2/R3
+table1(~`Newborn Care by Mother(%)`+
+         `Newborn Care by Nurse(%)`+
+         `Newborn Care by Student_Nurse(%)`+
+         `Newborn Care by Ward_Asssistant(%)`+
+         `Newborn Care by other hcw(%)`+
+       `Routine newborn care score`| Phase, data=R2_R3_NCI,
+       render.categorical=render_categorical,
+       render.continuous=render_continuous,
+       caption = "Cycle")
+```
+
+#Who provides Vital Signs
+```{r}
+vital_signs_by_who<-NCI %>%
+  rowwise() %>%
+  summarise(vital_signs_by_who=mean(`Vital Signs by Nurse(%)`,
+                                     `Vital Signs by Student_Nurse(%)`,
+                                     `Vital Signs by Ward_Asssistant(%)`,
+                                     `Vital Signs by other hcw(%)`)
+            )
+#Reshaping long
+vital_signs_monitoring<-melt(NCI, 
+                                    id.vars =c("Participant ID",
+                                               "Site_Code",
+                                               "Phase", "Round"),
+                                    measure.vars=c('Vital Signs by Nurse(%)',
+                                     'Vital Signs by Student_Nurse(%)',
+                                     'Vital Signs by Ward_Asssistant(%)',
+                                     'Vital Signs by other hcw(%)'),
+        variable.name ="Who monitors vitals", 
+        value.name=c("Proportion of vitals monitored"))
+
+View(vital_signs_monitoring)
+
+#dotplot
+ggplot(data=vital_signs_monitoring,
+       aes(x=`Proportion of vitals monitored`, fill=`Who monitors vitals`))+
+  geom_dotplot(na.rm = T, dotsize = 0.8)+facet_wrap(~Site_Code)
+  #coord_flip(expand = T)
+#
+table1(~`Vital Signs by Nurse(%)`+
+         `Vital Signs by Student_Nurse(%)`+
+         `Vital Signs by Ward_Asssistant(%)`+
+         `Vital Signs by other hcw(%)`+
+         `Vital signs score` | Phase, data=R2_R3_NCI,
+       render.categorical=render_categorical,
+       render.continuous=render_continuous,
+       caption = "Who performs vital sign monitoring")
+
+```
+#Who does Feeding
+```{r}
+feeding_by_who<-NCI %>%
+  rowwise() %>%
+  summarise(feeding_by_who=mean(`Feeding by Nurse(%)`,
+                                `Feeding by Student_Nurse(%)`,
+                                `Feeding by Ward_Asssistant(%)`,
+                                `Feeding by Mother(%)`,
+                                `Feeding by other hcw(%)`, na.rm=T)
+            )
+#Reshaping long
+feeding_by_who2<-melt(NCI, 
+                                    id.vars =c("Participant ID",
+                                               "Site_Code",
+                                               "Phase", "Round"),
+                                    measure.vars=c('Feeding by Nurse(%)',
+                                'Feeding by Student_Nurse(%)',
+                                'Feeding by Ward_Asssistant(%)',
+                                'Feeding by Mother(%)',
+                                'Feeding by other hcw(%)'),
+        variable.name ="Who does feeding", 
+        value.name=c("Proportion of feeding done"))
+
+View(feeding_by_who2)
+
+#dotplot
+ggplot(data=feeding_by_who2,
+       aes(x=`Proportion of feeding done`, fill=`Who does feeding`))+
+  geom_dotplot(na.rm = T, dotsize = 0.8, drop=T)+
+  facet_wrap(~Site_Code)+theme_bw()
+  #coord_flip(expand = T)
+#
+table1(~`Feeding by Nurse(%)`+
+         `Feeding by Student_Nurse(%)`+
+         `Feeding by Ward_Asssistant(%)`+
+         `Feeding by Mother(%)`+
+         `Feeding by other hcw(%)`+
+         `Feeding score`| Phase, data=R2_R3_NCI,
+       render.continuous=render_continuous,
+       render.categorical=render_categorical,
+       caption = "Who performs feeding")
+
+
+
+#Routine Nursing care
+table1(~`Routine nursing care score` | Site_Code, data=R3_NCI)
+
+```
+
+#NHPPS by Total NCI Score % - all care provided
+```{r}
+cor.test(NCI$NHPPS,NCI$`Total NCI Score (%)`) #r=0.32 [0.26 - 0.38]
+
+skewness(NCI$`Total NCI Score (%)`) #-0.89
+shapiro.test(NCI$`Total NCI Score (%)`) 
+
+R2_R3_NCI<-NCI %>% 
+  filter(Round=="Round 2" | Round=="Round 3")
+
+cor.test(NCI$NHPPS, NCI$`Total NCI Score (%)`)
+
+ggplot(data = NCI)+
+     aes(x=NHPPS, y=`Total NCI Score (%)`, color=Round)+
+     geom_point(aes(col=Round))+
+     theme_classic()+
+     facet_grid(~Site_Code)+
+     labs(title = "Correlation between NHPPS and Total NCI Score (%) | r=0.32",
+          y="Total NCI Score(%)", x="NHPPS (hours)")+ 
+     geom_smooth(method='glm', col="red", span=2, linewidth=0.8)+
+  scale_color_discrete(name='Hospital')
+
+```
+#NHPPS by Nurse-delivered care - scatterplot
+```{r}
+#NHPPS by Nurse-delivered care - scatterplot
+cor.test(NCI$NHPPS,NCI$`Nurse-delivered care`) #r=0.076 [0.0077 - 0.1438]
+
+ggplot(data = NCI)+
+     aes(x=NHPPS, y=`Nurse-delivered care`, color=Site_Code)+
+     geom_point(aes(col=Site_Code))+
+     theme_clean()+
+     facet_grid(~Round)+
+     labs(title = "Correlation between NHPPS and Nurse-delivered care | r=0.076",
+          y="Proportion of nurse-delivered care(%)", x="NHPPS (hours)")+ 
+     geom_smooth(method='glm', col="red", span=10, linewidth=0.7)+
+  scale_x_continuous(breaks = c(0,0.5,1.0,1.5,2.0,2.5,3.0)
+  )+
+  scale_y_continuous(breaks=c(0,10,20,30,40,50,60,70,80,90)
+  )+
+  scale_color_discrete(name="Hospital")+
+  theme(legend.background = element_rect(colour = 0, fill=0, linewidth = 0),
+        legend.position = c(0.85,-0.05), legend.direction = 'horizontal')
+
+```
+
+#NHPPS - Phase & Hospital
+```{r echo=TRUE}
+
+#NHPPS-hours
+NCI$NHPPS[NCI$NHPPS=='NA']<-NA_real_
+
+#NHPPS by phase & hospital
+median_nhpps<-NCI %>%
+  group_by(Phase, Site_Code) %>% 
+  arrange(across(starts_with("Pre-intervention"))) %>% 
+  summarise(median_nhpps=median(NHPPS), na.rm=T
+            )
+
+NCI$Phase<-recode(NCI$Phase, 'Baseline'='Pre-intervention', 'Extra Nurses'='Phase 1', 'Nurses+Ward Assistants'="Phase 2")
+
+NCI$Phase<-factor(NCI$Phase,
+                      labels=c("Pre-intervention","Phase 1","Phase 2"),
+                      levels=c("Pre-intervention","Phase 1","Phase 2")
+                      )
+
+boxplot_NHPPS<-ggplot(data = NCI,
+                      aes(x=Site_Code, y=NHPPS, fill=Phase))+
+      geom_boxplot()+
+      theme(legend.position = "Top")+
+      labs(title = "NHPPS by phase and hospital", y="NHPPS (hours)", x="Hospital")+
+      facet_grid(~factor(Phase, levels=c("Pre-intervention",
+                                   "Phase 1","Phase 2")))+
+      theme_bw()+
+      scale_fill_discrete(name=" ",
+                          labels=c('Baseline'="Pre-intervention",
+                                   'Extra Nurses'="Phase 1",
+                                   'Nurses+Ward Assistants'="Phase 2"))+
+      geom_text(data = median_nhpps, aes(Site_Code, median_nhpps,
+                                label=sprintf("%.2f",median_nhpps), col="navy"), 
+                                      position = position_dodge2(width=0.8), size=2.5, vjust=-0.9, color="navy"
+                )
+print(boxplot_NHPPS)
+
+library(png)
+
+
+median_nhpps_phase<-NCI %>%
+  group_by(Phase) %>% 
+  summarise(median_nhpps_phase=median(NHPPS)
+            )
+favstats(NCI$NHPPS~NCI$Phase)
+
+
+boxplot_NHPPS_x<-ggplot(data = NCI,
+                      aes(x=Phase, y=NHPPS, fill=Phase))+
+      geom_boxplot()+
+      theme(legend.position = "Top")+
+      labs(title = "NHPPS by phase", y="NHPPS (hours)", x="Phase")+
+      #facet_grid(~Phase, margins = F, scales='free_y', space='free_x')+
+      theme_bw()+
+      scale_fill_discrete(name=" ")+
+      geom_text(data = median_nhpps_phase, aes(Phase, median_nhpps_phase,
+                                label=sprintf("%.2f",median_nhpps_phase), col="navy"), 
+                                      position = position_dodge2(width=0.8), size=2.5, vjust=-0.9, color="navy"
+                )+
+  scale_y_continuous(breaks=c(0,0.2,0.4,0.6,0.8, 1.0,1.2,1.4,1.6,1.8,2.0,2.2)
+                     )+
+  theme(legend.position = c(0.83,1.02),legend.direction = "horizontal",
+            legend.background = element_rect(color = 0, fill = 0, linewidth = 0)
+        )
+print(boxplot_NHPPS_x)
+
+
+#NHPPS-minutes
+median_nhpps2<-NCI %>%
+  group_by(Site_Code,Phase) %>% 
+  summarise(median_nhpps2=median(NHPPS_minutes)
+            )
+boxplot_NHPPS2<-ggplot(data = NCI,
+                      aes(x=Site_Code, y=NHPPS_minutes, fill=Site_Code))+
+      geom_boxplot()+
+      labs(title = "NHPPS by phase and hospital", y="NHPPS (minutes)", x="Hospital")+
+      facet_grid(~Phase, margins = F, scales='free_y', space='free_x')+
+      theme_bw()+
+      theme(legend.position = c(0.9,-0.05),legend.direction = "horizontal",
+            legend.background = element_rect(color = 0, fill = 0, linewidth = 0))+
+      scale_fill_discrete(name="Hospital")+
+      geom_text(data = median_nhpps2, aes(Site_Code, median_nhpps2,
+                                label=sprintf("%.0f",median_nhpps2), col="navy"), 
+                                      position = position_dodge2(width=0.8), size=2.5, vjust=-0.85, color="navy"
+                )
+print(boxplot_NHPPS2)
+
+#Condensed by phase only
+median_nhpps3<-NCI %>%
+  rowwise() %>% 
+  group_by(Phase) %>% 
+  summarise(median_nhpps3=median(NHPPS_minutes)
+            )
+boxplot_NHPPS3<-ggplot(data = NCI)+
+      geom_boxplot(aes(x=Phase, y=NHPPS_minutes, fill=Phase))+
+      labs(title = "NHPPS by phase", y="NHPPS (minutes)", x="Intervention phase")+
+  theme_stata(scheme = 's2mono')+
+  scale_y_continuous(breaks = c(0,0.5,1.0, 2.5, 2.0, 2.5,3.0))+
+      geom_text(data = median_nhpps3, aes(Phase, median_nhpps3,
+                                label=sprintf("%.0f",median_nhpps3)), 
+                                        position = position_dodge2(width=0.8), 
+                size=2.5, vjust=-0.8, color='black')+
+  theme_clean()+
+  theme(legend.position = c(0.92,0.927)
+        )
+print(boxplot_NHPPS3)
+
+```
+
+#Documentation - summary
+```{r include=FALSE}
+library(table1)
+library(printr)
+library(kableExtra)
+library(tidyr)
+
+NCI$`Neonatal assessment by nurse`[NCI$`Neonatal assessment by nurse`=='Indeterminate']<-NA_character_
+NCI$`Neonatal assessment by nurse`[NCI$`Neonatal assessment by nurse`=='Not applicable']<-NA_character_
+
+NCI$`Temperature measurements`[NCI$`Temperature measurements`=='Missing']<-NA_character_
+NCI$`Heart rate`[NCI$`Heart rate`=='Missing']<-NA_character_
+NCI$`Oxygen saturation`[NCI$`Oxygen saturation`=='Not applicable']<-NA_character_
+NCI$`Oxygen saturation`[NCI$`Oxygen saturation`=='Missing']<-NA_character_
+NCI$`Ward round details`[NCI$`Ward round details`=='Not applicable']<-NA_character_
+
+NCI$`Frequency and volume of feeds`[NCI$`Frequency and volume of feeds`=='Not applicable']<-NA_character_
+NCI$`Volume of IV fluids`[NCI$`Volume of IV fluids`=="Not applicable"]<-NA_character_
+
+NCI$`Health talks/ Communication to parents`[NCI$`Health talks/ Communication to parents`=='Indeterminate']<-NA_character_
+NCI$`Health talks/ Communication to parents`[NCI$`Health talks/ Communication to parents`=='Not applicable']<-NA_character_
+
+NCI$`Weight check...572`[NCI$`Weight check...572`=='Not applicable']<-NA_character_
+NCI$`Weight check...572`[NCI$`Weight check...572`=='Indeterminate']<-NA_character_
+
+label(NCI$`Weight check...572`)<-"Weight"
+
+documentation<-table1(~`Neonatal assessment by nurse`+
+                      `Nursing care plan`+
+                        `Temperature measurements`+
+                        `Heart rate`+
+                      `Oxygen saturation`+
+                        `Ward round details`+
+                        `Frequency and volume of feeds`+
+                         `Volume of IV fluids`+
+                      `Health talks/ Communication to parents`+
+                        `Weight check...572`
+                       | Site_Code, data=NCI,
+                      overall = 'Overall', 
+       caption = "Summary of Documentation Practices",
+       topclass = "Rtable1-zebra",
+       na.rm=T)
+print(documentation)
+
+documentation2<-tbl_summary(NCI,
+                            include = c(`Neonatal assessment by nurse`,
+                                        `Nursing care plan`,
+                                        `Temperature measurements`,
+                                        `Heart rate`,
+                                        `Oxygen saturation`,
+                                        `Ward round details`,
+                                        `Frequency and volume of feeds`,
+                                        `Volume of IV fluids`,
+                                        `Health talks/ Communication to parents`,
+                                        `Weight check...572`),
+                      
+                      by=Site_Code,
+                     missing = "no",
+                     missing_text = NULL,
+                     digits = all_continuous()~0) %>% 
+  add_overall(last=T) %>% bold_labels() %>% 
+  modify_header(label="Documentation practice") %>% modify_caption("*Hospital*")
+print(documentation2)
+  
+```
+
+#Correlation
+##corr per site
+```{r include=F, eval=FALSE, echo=FALSE}
+cor13<-cor.test(R1_NCI$NHPPS, R1_NCI$`Total NCI Score (%)`) #r=0.27
+cor14<-cor.test(R2_NCI$NHPPS, R2_NCI$`Total NCI Score (%)`) #r=0.30
+cor15<-cor.test(R3_NCI$NHPPS, R3_NCI$`Total NCI Score (%)`) #r=0.34
+
+```
+#Corr - R1-R3 NHPPS
+
+##Correlation Staffing metrics 
+```{r}
+corr2<-cor.test(NCI$`Total NCI Score (%)`, NCI$NHPPS) #0.42-NCI, -0.083-H1, 0.21-H2, 0.016-H3, 0.03-H4 |(18% variability in NCI Composite score is explained by NHPPS)
+print(corr2)
+corr4<-cor.test(NCI$`Number of nursing students on the shifts`,NCI$`Total NCI Score (%)`) 
+print(corr4)
+#0.32-NCI , 0.18-H1, 0.089-H2, 0.18-H3, 0.045-H4 |(R^2--10% of variability in NCI composite score is explained by nursing student numbers)
+
+```
+
+#Scatter plot distribution of the variables
+```{r, echo=F}
+ggplot(data = NCI)+
+     aes(x=NHPPS)+
+     geom_histogram()+ stat_bin(bins=15, binwidth = 0.2)
+skewness(NCI$NHPPS) #1.4
+shapiro.test(NCI$NHPPS) #pvalue is <0.05 - Not normally distributed
+
+#Scatter plot
+cor.test(NCI$NHPPS, NCI$`Total NCI Score (%)`) #r=0.3
+
+ggplot(data = NCI)+
+     aes(x=NHPPS, y=`Total NCI Score (%)`, color=Site_Code)+
+     geom_point(aes(col=Site_Code))+
+     theme_classic()+
+     facet_grid(~Site_Code)+
+     stat_smooth(method='glm', col="red", span=5, linewidth=0.8)+
+  theme(legend.position="none")
+
+```
+
+#Model1 - with covariates adjustment of confounding
+```{r eval=FALSE, include=FALSE}
+model1<-glm(`Total NCI Score (%)`~NHPPS+
+               `Number of nursing students on the shifts`+
+              `Total Ward Assistants on the shift`+
+               Shift_type2+
+              `Patient Care category`+
+              Site_Code,
+              data=NCI %>% 
+              filter(Phase=="Extra_Nurses"),
+            family = "gaussian"
+              )
+model1_table <- model1 %>% 
+  tbl_regression(exponentiate = F,
+                 label=list(`Number of nursing students on the shifts`~"No of student nurses on the shift",
+                            `Total Ward Assistants on the shift`~"No of ward assistants on the shift",
+                            Shift_type2~"Shift type",
+                            `Patient Care category`~"Patient Acuity",
+                            Site_Code~"Hospital")) %>% 
+  bold_labels() %>% 
+  bold_p() %>% 
+  modify_caption(caption = "GLM, reference = Round 1 intervention") %>% 
+  modify_header(label="*Covariates*")
+print(model8_table)
+
+summary(model1)
+confint(model1, level=0.95)
+summary(model1)$coefficients
+
+car::vif(model1)
+
+```
+
+
